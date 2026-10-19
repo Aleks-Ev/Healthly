@@ -39,3 +39,10 @@ An AI-driven web platform and mobile application designed to upload, analyze, an
 *   **Deployment:** Deploy backend services and the web platform onto cloud infrastructure (or university server environments), ensuring SSL/TLS certificate setup.
 *   **Build Release:** Package production builds for the mobile application.
 *   **Documentation & Thesis Preparation:** Draft the technical thesis documentation, user manual, and presentation slides for the diploma defense committee.
+
+## License / Лицензия
+
+Copyright © 2026 [Название вашей команды/проекта]. All rights reserved.
+
+Проект является интеллектуальной собственностью авторов. Использование, копирование, 
+модификация или коммерческое распространение исходного кода без письменного разрешения правообладателей запрещены.
