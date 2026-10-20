@@ -4,6 +4,15 @@
 An AI-driven web platform and mobile application designed to upload, analyze, and interpret laboratory test results, as well as provide personalized health and wellness recommendations.
 
 ---
+1. Backend: .NET (C#) / ASP.NET Core
+
+2. AI & OCR: Python (FastAPI) + Tesseract/EasyOCR + LLM (модель на выбор)
+
+3. Database: PostgreSQL + Entity Framework Core (EF Core)
+
+4. Mobile App: Flutter (Dart)
+
+5. Web Frontend: React (TypeScript) + Tailwind CSS
 
 ## 🚀 Step-by-Step Development Roadmap
 
