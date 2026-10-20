@@ -12,7 +12,7 @@ An AI-driven web platform and mobile application designed to upload, analyze, an
 
 4. Mobile App: Flutter (Dart)
 
-5. Web Frontend: React (TypeScript) + Tailwind CSS
+5. Web Frontend: Next.js + TypeScript + Tailwind
 
 ## 🚀 Step-by-Step Development Roadmap
 
