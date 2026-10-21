@@ -1,0 +1,18 @@
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+dist/
+.DS_Store
+
+# .NET / Visual Studio
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Environment variables
+.env
+.env.local
