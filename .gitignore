@@ -16,3 +16,5 @@ obj/
 # Environment variables
 .env
 .env.local
+# Загруженные медицинские документы (локальное хранилище API)
+HealthlyApi/uploads/

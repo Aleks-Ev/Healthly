@@ -14,6 +14,32 @@ An AI-driven web platform and mobile application designed to upload, analyze, an
 
 5. Web Frontend: Next.js + TypeScript + Tailwind
 
+## 🐳 Run everything with Docker
+
+Requirements: [Docker Desktop](https://www.docker.com/products/docker-desktop/). From the project root:
+
+```bash
+docker compose up -d --build
+```
+
+| Service | URL | Notes |
+|---|---|---|
+| Website (Next.js) | http://localhost:3000 | |
+| API (.NET 10) | http://localhost:5097 | API docs: http://localhost:5097/scalar |
+| PostgreSQL 18 | `localhost:5433` | database `healthly_db`, user `healthly`, password `healthly_dev_password` (pgAdmin) |
+
+On first start the API creates the database schema and demo accounts:
+`patient@healthly.com` / `Patient123!`, `doctor@healthly.com` / `Doctor123!`, `admin@healthly.com` / `Admin123!`.
+
+- **Data is kept** in Docker volumes: `healthly_postgres-data` (database) and `healthly_uploads` (uploaded PDF/photo reports).
+  `docker compose down` keeps them; `docker compose down -v` **deletes** them.
+- **Passwords and keys:** copy `.env.example` to `.env` and change the values (the defaults are for local use only).
+- **After code changes:** `docker compose up -d --build`. Logs: `docker compose logs -f api`.
+- Ports 3000 and 5097 are the same as local development: stop `npm run dev` / `dotnet run` first (or the containers).
+
+Team guide (local setup, test accounts, API docs, mobile base URLs): [TEAM_GUIDE.md](TEAM_GUIDE.md).
+Mobile developers: see [MOBILE_HANDOFF.md](MOBILE_HANDOFF.md).
+
 ## 🚀 Step-by-Step Development Roadmap
 
 ### Phase 1: Environment Setup & Project Configuration

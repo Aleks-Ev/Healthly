@@ -1,0 +1,70 @@
+# Healthly: PostgreSQL + .NET API + Next.js одной командой
+#
+#   docker compose up -d --build     — собрать и запустить
+#   docker compose logs -f api       — логи API
+#   docker compose down              — остановить (данные в томах сохраняются)
+#   docker compose down -v           — остановить и УДАЛИТЬ базу и загруженные файлы
+#
+# Адреса: сайт http://localhost:3000, API http://localhost:5097 (Scalar: /scalar), PostgreSQL localhost:5433.
+# Пароли и ключи переопределяются в файле .env рядом с этим файлом (шаблон — .env.example).
+# Значения по умолчанию ниже — только для локального запуска, не для production.
+
+name: healthly
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: healthly_db
+      POSTGRES_USER: ${POSTGRES_USER:-healthly}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-healthly_dev_password}
+    volumes:
+      # Начиная с postgres 18 данные лежат в /var/lib/postgresql/<версия>, поэтому том монтируется на уровень выше
+      - postgres-data:/var/lib/postgresql
+    ports:
+      # 5433 снаружи, чтобы не конфликтовать с локальным PostgreSQL на 5432 (подключение из pgAdmin: localhost:5433)
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./HealthlyApi
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy # API стартует, когда база уже принимает подключения
+    environment:
+      # Development: включены Scalar (/scalar) и демо-аккаунты (patient@/doctor@/admin@healthly.com, см. MOBILE_HANDOFF.md)
+      ASPNETCORE_ENVIRONMENT: ${API_ENVIRONMENT:-Development}
+      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=healthly_db;Username=${POSTGRES_USER:-healthly};Password=${POSTGRES_PASSWORD:-healthly_dev_password}
+      Jwt__Key: ${JWT_KEY:-local-docker-dev-key-change-me-in-env-file-0123456789}
+      Database__MigrateOnStartup: "true"
+      # true — пересоздать историю анализов демо-аккаунтов при старте (даты снова «последние 6 месяцев»)
+      DemoData__ResetHistory: ${DEMO_RESET_HISTORY:-false}
+      Cors__Origins__0: ${WEB_ORIGIN:-http://localhost:3000}
+      Storage__UploadsPath: /app/uploads
+    volumes:
+      # Загруженные PDF/фото отчётов переживают пересборку и перезапуск контейнера
+      - uploads:/app/uploads
+    ports:
+      - "5097:8080"
+
+  web:
+    build:
+      context: ./healthly-web
+      args:
+        # Адрес API, который видит БРАУЗЕР (не контейнер), поэтому localhost, а не api
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:5097/api}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:
+  uploads:
