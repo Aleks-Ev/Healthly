@@ -1,4 +1,175 @@
 @HealthlyApi_HostAddress = http://localhost:5097
+# Вставьте сюда token из ответа /api/auth/login
+@token =
 
-GET {{HealthlyApi_HostAddress}}/api/users
-Accept: application/json
+### Регистрация пациента
+POST {{HealthlyApi_HostAddress}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "patient@healthly.com",
+  "firstName": "John",
+  "lastName": "Smith",
+  "password": "Passw0rd!",
+  "phoneNumber": "+90 532 123 45 67",
+  "dateOfBirth": "1990-05-14",
+  "gender": "Male",
+  "city": "Istanbul",
+  "accessCode": null,
+  "marketingOptIn": false,
+  "acceptTerms": true,
+  "acceptMedicalAuthorization": true
+}
+
+### Вход
+POST {{HealthlyApi_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "patient@healthly.com",
+  "password": "Patient123!"
+}
+
+### Обновить токены (refreshToken — из ответа /login или предыдущего /refresh; старый после обмена не действует)
+POST {{HealthlyApi_HostAddress}}/api/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "<refreshToken>"
+}
+
+### Выход (отзывает refresh-токен)
+POST {{HealthlyApi_HostAddress}}/api/auth/logout
+Content-Type: application/json
+
+{
+  "refreshToken": "<refreshToken>"
+}
+
+### Сменить свой пароль (вернёт новую пару токенов; остальные сессии завершатся)
+PUT {{HealthlyApi_HostAddress}}/api/auth/me/password
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "currentPassword": "Patient123!",
+  "newPassword": "NewPass123!"
+}
+
+### Текущий пользователь
+GET {{HealthlyApi_HostAddress}}/api/auth/me
+Authorization: Bearer {{token}}
+
+### Список пользователей (Doctor, Admin)
+GET {{HealthlyApi_HostAddress}}/api/users?role=Patient
+Authorization: Bearer {{token}}
+
+### Пользователь по Id
+GET {{HealthlyApi_HostAddress}}/api/users/1
+Authorization: Bearer {{token}}
+
+### Создать пользователя (Admin)
+POST {{HealthlyApi_HostAddress}}/api/users
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "email": "doctor@healthly.com",
+  "fullName": "Dr. House",
+  "password": "Passw0rd!",
+  "role": "Doctor"
+}
+
+### Обновить профиль (сам пользователь или Admin; role/password — только Admin)
+PUT {{HealthlyApi_HostAddress}}/api/users/1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "email": "test@healthly.com",
+  "fullName": "Test User",
+  "weight": 72
+}
+
+### Удалить пользователя (Admin)
+DELETE {{HealthlyApi_HostAddress}}/api/users/3
+Authorization: Bearer {{token}}
+
+### ===== Медицинские документы (этап 3) =====
+
+### Документы пользователя
+GET {{HealthlyApi_HostAddress}}/api/users/1/documents
+Authorization: Bearer {{token}}
+
+### Загрузить документ (PDF/PNG/JPG до 10 МБ; путь к файлу — относительно этого .http файла)
+POST {{HealthlyApi_HostAddress}}/api/users/1/documents
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=HealthlyBoundary
+
+--HealthlyBoundary
+Content-Disposition: form-data; name="file"; filename="report.pdf"
+Content-Type: application/pdf
+
+< ./report.pdf
+--HealthlyBoundary--
+
+### Документ с показателями
+GET {{HealthlyApi_HostAddress}}/api/documents/1
+Authorization: Bearer {{token}}
+
+### Скачать файл документа
+GET {{HealthlyApi_HostAddress}}/api/documents/1/file
+Authorization: Bearer {{token}}
+
+### Изменить статус (Doctor, Admin)
+PUT {{HealthlyApi_HostAddress}}/api/documents/1/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "status": "Processing"
+}
+
+### Удалить документ (владелец или Admin)
+DELETE {{HealthlyApi_HostAddress}}/api/documents/1
+Authorization: Bearer {{token}}
+
+### Добавить показатель (isAbnormal не указан — определится по referenceRange)
+POST {{HealthlyApi_HostAddress}}/api/documents/1/results
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "testName": "Hemoglobin",
+  "value": "135",
+  "unit": "g/L",
+  "referenceRange": "120-160"
+}
+
+### Изменить показатель
+PUT {{HealthlyApi_HostAddress}}/api/results/1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "testName": "Hemoglobin",
+  "value": "112",
+  "unit": "g/L",
+  "referenceRange": "120-160"
+}
+
+### Удалить показатель
+DELETE {{HealthlyApi_HostAddress}}/api/results/1
+Authorization: Bearer {{token}}
+
+### ИИ-анализ документа (пока заглушка mock-ai-v1: показатели, нормы, резюме, врачи)
+POST {{HealthlyApi_HostAddress}}/api/documents/1/analyze
+Authorization: Bearer {{token}}
+
+### Сводный отчёт пользователя
+GET {{HealthlyApi_HostAddress}}/api/users/1/report
+Authorization: Bearer {{token}}
+
+### Динамика показателей (для графика Health Trends)
+GET {{HealthlyApi_HostAddress}}/api/users/1/trends
+Authorization: Bearer {{token}}
