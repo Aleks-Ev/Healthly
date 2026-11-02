@@ -59,6 +59,8 @@ public static class DbInitializer
             await context.Database.MigrateAsync();
         }
 
+        await SyncReferenceValuesAsync(app, context);
+
         if (!app.Environment.IsDevelopment())
         {
             return;
@@ -72,6 +74,32 @@ public static class DbInitializer
             var storage = services.GetRequiredService<FileStorageService>();
             var resetHistory = app.Configuration.GetValue<bool>("DemoData:ResetHistory");
             await SeedDemoAccountsAsync(app.Logger, context, passwords, storage, resetHistory);
+        }
+    }
+
+    // Справочник норм: Data/reference-values.csv → таблица ReferenceMedicalValues (во всех окружениях, при каждом запуске).
+    // Таблица целиком заменяется содержимым файла в одной транзакции: файл — единственный источник норм,
+    // на строки справочника ничего не ссылается. Ошибка в файле останавливает запуск (см. ReferenceValuesCsv)
+    private static async Task SyncReferenceValuesAsync(WebApplication app, AppDbContext context)
+    {
+        var path = app.Configuration["ReferenceValues:Path"] is { Length: > 0 } configured
+            ? configured
+            : Path.Combine(AppContext.BaseDirectory, "Data", "reference-values.csv");
+        var values = ReferenceValuesCsv.Load(path);
+
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        await context.ReferenceMedicalValues.ExecuteDeleteAsync();
+        context.ReferenceMedicalValues.AddRange(values);
+        await context.SaveChangesAsync();
+        await transaction.CommitAsync();
+
+        var drafts = values.Count(v => string.IsNullOrWhiteSpace(v.ReviewedBy));
+        app.Logger.LogInformation("Reference values loaded from {Path}: {Count} rows", path, values.Count);
+        if (drafts > 0)
+        {
+            app.Logger.LogWarning(
+                "{Drafts} of {Count} reference value rows are DRAFTS not yet reviewed by a medical advisor (empty ReviewedBy). See Data/REFERENCE_VALUES.md",
+                drafts, values.Count);
         }
     }
 

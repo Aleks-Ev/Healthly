@@ -47,16 +47,23 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<ReferenceMedicalValue>(value =>
         {
-            value.HasIndex(v => v.MetricName).IsUnique();
+            // Не уникальный: у показателя может быть несколько строк (женщины/мужчины, возрастные группы)
+            value.HasIndex(v => v.MetricName);
             value.Property(v => v.MetricName).HasMaxLength(100);
+            value.Property(v => v.Aliases).HasMaxLength(500);
+            value.Property(v => v.Sex).HasMaxLength(10);
             // numeric(10,3): до 9 999 999.999 — хватает и для g/L, и для 10^9/L
             value.Property(v => v.MinNormal).HasPrecision(10, 3);
             value.Property(v => v.MaxNormal).HasPrecision(10, 3);
+            value.Property(v => v.CriticalLow).HasPrecision(10, 3);
+            value.Property(v => v.CriticalHigh).HasPrecision(10, 3);
             value.Property(v => v.Unit).HasMaxLength(30);
             value.Property(v => v.Category).HasMaxLength(100);
             value.Property(v => v.DoctorSpecialty).HasMaxLength(100);
-            // Справочные нормы создаются миграцией (см. ReferenceMedicalValueSeed)
-            value.HasData(ReferenceMedicalValueSeed.Values);
+            value.Property(v => v.Source).HasMaxLength(300);
+            value.Property(v => v.ReviewedBy).HasMaxLength(100);
+            // Строки не создаются миграцией: их при каждом запуске синхронизирует DbInitializer
+            // из Data/reference-values.csv (файл правят врачи-консультанты, см. Data/REFERENCE_VALUES.md)
         });
 
         modelBuilder.Entity<TestResult>(result =>

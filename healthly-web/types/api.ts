@@ -111,6 +111,39 @@ export interface MedicalDocumentDetails extends Omit<MedicalDocument, 'resultsCo
   results: TestResult[];
 }
 
+// POST /api/documents/{id}/analyze — ИИ-анализ документа (DocumentAnalysisResponse на бэкенде)
+export interface AnalyzedIndicator {
+  testName: string;
+  value: string;
+  unit: string;
+  referenceRange: string;
+  // null — не удалось определить или значение похоже на ошибку распознавания (тогда confidence ≤ 0.4)
+  isAbnormal: boolean | null;
+  // за критическим порогом: опасно, нужен врач срочно (всегда и isAbnormal = true)
+  isCritical: boolean;
+  category: string | null;
+  doctorSpecialty: string | null;
+  confidence: number;
+}
+
+export interface DocumentAnalysis {
+  documentId: number;
+  indicators: AnalyzedIndicator[];
+  abnormalCount: number;
+  criticalCount: number;
+  summary: string;
+  recommendations: string[];
+  suggestedSpecialists: string[];
+  anonymizedText: string;
+  model: string;
+  isMock: boolean;
+  analyzedAt: string;
+  disclaimer: string;
+}
+
+// Значение ниже этой уверенности распознавания нужно сверить с бланком (DocumentAnalysisService.UncertainConfidence)
+export const UNCERTAIN_CONFIDENCE = 0.4;
+
 // isAbnormal = null — сервер определит по referenceRange
 export interface TestResultRequest {
   testName: string;

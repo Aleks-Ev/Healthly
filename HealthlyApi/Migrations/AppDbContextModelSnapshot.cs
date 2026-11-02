@@ -74,10 +74,29 @@ namespace HealthlyApi.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("AgeFrom")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("AgeTo")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Aliases")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<string>("Category")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<decimal?>("CriticalHigh")
+                        .HasPrecision(10, 3)
+                        .HasColumnType("numeric(10,3)");
+
+                    b.Property<decimal?>("CriticalLow")
+                        .HasPrecision(10, 3)
+                        .HasColumnType("numeric(10,3)");
 
                     b.Property<string>("DoctorSpecialty")
                         .IsRequired()
@@ -97,6 +116,24 @@ namespace HealthlyApi.Migrations
                         .HasPrecision(10, 3)
                         .HasColumnType("numeric(10,3)");
 
+                    b.Property<DateOnly?>("ReviewedAt")
+                        .HasColumnType("date");
+
+                    b.Property<string>("ReviewedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Sex")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
                     b.Property<string>("Unit")
                         .IsRequired()
                         .HasMaxLength(30)
@@ -104,51 +141,9 @@ namespace HealthlyApi.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("MetricName")
-                        .IsUnique();
+                    b.HasIndex("MetricName");
 
                     b.ToTable("ReferenceMedicalValues");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = 1,
-                            Category = "Biochemistry",
-                            DoctorSpecialty = "Endocrinologist",
-                            MaxNormal = 5.6m,
-                            MetricName = "Glucose",
-                            MinNormal = 3.9m,
-                            Unit = "mmol/L"
-                        },
-                        new
-                        {
-                            Id = 2,
-                            Category = "Lipid profile",
-                            DoctorSpecialty = "Cardiologist",
-                            MaxNormal = 5.2m,
-                            MetricName = "Cholesterol",
-                            Unit = "mmol/L"
-                        },
-                        new
-                        {
-                            Id = 3,
-                            Category = "Complete blood count",
-                            DoctorSpecialty = "Hematologist",
-                            MaxNormal = 160m,
-                            MetricName = "Hemoglobin",
-                            MinNormal = 120m,
-                            Unit = "g/L"
-                        },
-                        new
-                        {
-                            Id = 4,
-                            Category = "Complete blood count",
-                            DoctorSpecialty = "Hematologist",
-                            MaxNormal = 9.0m,
-                            MetricName = "Leukocytes",
-                            MinNormal = 4.0m,
-                            Unit = "10^9/L"
-                        });
                 });
 
             modelBuilder.Entity("HealthlyApi.Models.RefreshToken", b =>

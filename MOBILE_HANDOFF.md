@@ -456,11 +456,12 @@ highlight it and ask the user to check it against the paper report before saving
   "documentId": 33,
   "indicators": [
     { "testName": "Glucose", "value": "6.2", "unit": "mmol/L", "referenceRange": "3.9-5.6", "isAbnormal": true,
-      "category": "Biochemistry", "doctorSpecialty": "Endocrinologist", "confidence": 0.94 },
-    { "testName": "Leukocytes", "value": "7.7", "unit": "10^9/L", "referenceRange": "4-9", "isAbnormal": false,
-      "category": "Complete blood count", "doctorSpecialty": "Hematologist", "confidence": 0.91 }
+      "isCritical": false, "category": "Biochemistry", "doctorSpecialty": "Endocrinologist", "confidence": 0.94 },
+    { "testName": "Leukocytes", "value": "7.7", "unit": "10^9/L", "referenceRange": "4-10", "isAbnormal": false,
+      "isCritical": false, "category": "Complete blood count", "doctorSpecialty": "Hematologist", "confidence": 0.91 }
   ],
   "abnormalCount": 3,
+  "criticalCount": 0,
   "summary": "[Mock AI summary] 3 of 4 indicators are outside the reference range: Glucose, Cholesterol, Hemoglobin. ...",
   "recommendations": ["Repeat a fasting glucose test and consider an HbA1c test.", "..."],
   "suggestedSpecialists": ["Endocrinologist", "Cardiologist", "Hematologist"],
@@ -474,6 +475,16 @@ highlight it and ask the user to check it against the paper report before saving
 
 - `isAbnormal` is decided by the server against its reference norms (not by the AI); `null` = could not be determined
   or the value looks misread (then `confidence` is ≤ 0.4 — ask the user to check it).
+- **`isCritical: true`** — the value is beyond a critical (life-threatening) limit, e.g. potassium ≥ 6.2 mmol/L;
+  `criticalCount` > 0 on the response. Required in the app:
+  - highlight the row in **red** and show a red banner above the results: *"Critical value: … Contact your doctor
+    right away or seek urgent medical care."* If that indicator's `confidence` ≤ 0.4, say *"Possible critical value —
+    check it against the original report"* instead (it may be a reading error);
+  - a **push notification** to the user. The server does not send pushes yet — for now show a local notification
+    when the analysis response has `criticalCount > 0`; server-side push (e.g. FCM) will come with saved analyses.
+  - The norms are a **draft not yet reviewed by a doctor** — do not show the evaluation to real patients before release.
+- Norms depend on the user's **sex and age** (taken from the profile); names are normalized to the catalog
+  (`WBC` → `Leukocytes`, `SGPT` → `ALT`).
 - Values keep the lab's units; `referenceRange` is shown in the same units (the server converts g/dL ↔ g/L,
   mg/dL ↔ mmol/L, /cumm ↔ 10^9/L itself). `testName` uses the catalog name when the indicator is in it.
 - `suggestedSpecialists` — doctors for the out-of-range indicators; empty when everything is normal.

@@ -5,6 +5,7 @@ import type {
   AuthResponse,
   ChangePasswordRequest,
   CreateUserRequest,
+  DocumentAnalysis,
   DocumentStatus,
   IndicatorTrend,
   LoginRequest,
@@ -246,6 +247,8 @@ export const documentsApi = {
   updateStatus: (id: number, status: DocumentStatus) =>
     request<MedicalDocumentDetails>(`/documents/${id}/status`, { method: 'PUT', json: { status } }),
   remove: (id: number) => request<void>(`/documents/${id}`, { method: 'DELETE' }),
+  // ИИ-анализ: 10–30 секунд (OCR + модель); 422 — документ не читается, 503 — ИИ временно недоступен
+  analyze: (id: number) => request<DocumentAnalysis>(`/documents/${id}/analyze`, { method: 'POST' }),
   // Файл нужно скачивать с заголовком Authorization, поэтому обычная ссылка не подходит
   download: async (id: number, fileName: string) => {
     const response = await send(`/documents/${id}/file`);

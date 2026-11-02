@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using HealthlyApi.Data;
 using HealthlyApi.Dtos;
@@ -48,9 +49,13 @@ public partial class DocumentAnalysisService
 
         var analysis = await _processor.AnalyzeAsync(input, cancellationToken);
 
-        var indicators = analysis.Indicators.Select(indicator => Evaluate(indicator, references)).ToList();
+        var sex = patient.Gender;
+        var age = GetAge(patient.DateOfBirth);
+        var indicators = analysis.Indicators.Select(indicator => Evaluate(indicator, references, sex, age)).ToList();
+        // Критическое значение — всегда отклонение (IsAbnormal = true), поэтому его врач тоже попадает в список
         var specialists = indicators
             .Where(i => i.IsAbnormal == true && !string.IsNullOrEmpty(i.DoctorSpecialty))
+            .OrderByDescending(i => i.IsCritical)
             .Select(i => i.DoctorSpecialty!)
             .Distinct()
             .ToList();
@@ -59,6 +64,7 @@ public partial class DocumentAnalysisService
             document.Id,
             indicators,
             indicators.Count(i => i.IsAbnormal == true),
+            indicators.Count(i => i.IsCritical),
             analysis.Summary,
             analysis.Recommendations.ToList(),
             specialists,
@@ -73,18 +79,18 @@ public partial class DocumentAnalysisService
     public const double UncertainConfidence = 0.4;
 
     // Норма из справочника важнее диапазона из бланка: так одинаковые показатели оцениваются одинаково.
-    // Единицы бланка пересчитываются в единицы справочника (UnitConverter): «Hemoglobin 12 g/dL» = 120 g/L — норма.
-    // Если пересчитать нельзя (неизвестная или искажённая OCR единица) — оцениваем по диапазону из бланка.
+    //   - строка справочника выбирается по названию или синониму, полу и возрасту пациента (FindReference);
+    //   - единицы бланка пересчитываются в единицы справочника (UnitConverter): «Hemoglobin 12 g/dL» = 120 g/L — норма;
+    //   - если строки для этого пола/возраста нет или единицу пересчитать нельзя — оцениваем по диапазону из бланка;
+    //   - за критическими порогами справочника — IsCritical (красная подсветка, срочно к врачу).
     // public — для юнит-тестов (HealthlyApi.Tests)
-    public static AnalyzedIndicatorResponse Evaluate(AiExtractedIndicator indicator, IReadOnlyList<ReferenceMedicalValue> references)
+    public static AnalyzedIndicatorResponse Evaluate(
+        AiExtractedIndicator indicator, IReadOnlyList<ReferenceMedicalValue> references, string? sex = null, int? age = null)
     {
-        // Модель иногда дописывает к названию единицу из справочника: «Hemoglobin (g/L)» — сравниваем без скобок
-        var name = TrailingParenthesesRegex().Replace(indicator.TestName, string.Empty);
-        var reference = references.FirstOrDefault(r =>
-            string.Equals(r.MetricName, indicator.TestName, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(r.MetricName, name, StringComparison.OrdinalIgnoreCase));
+        var (metric, reference) = FindReference(references, indicator.TestName, sex, age);
         var range = indicator.ReferenceRange;
         bool? isAbnormal;
+        var isCritical = false;
 
         if (reference != null
             && ReferenceRangeEvaluator.TryParse(indicator.Value, out var value)
@@ -92,6 +98,7 @@ public partial class DocumentAnalysisService
         {
             var converted = value * factor;
             isAbnormal = converted < (double?)reference.MinNormal || converted > (double?)reference.MaxNormal;
+            isCritical = converted < (double?)reference.CriticalLow || converted > (double?)reference.CriticalHigh;
             // Диапазон показываем в единицах бланка — рядом со значением, как его видит пользователь
             range = FormatRange(reference, factor);
         }
@@ -104,20 +111,49 @@ public partial class DocumentAnalysisService
         if ((isAbnormal == true && LooksLikeLostDecimalPoint(indicator.Value, range)) || IsAmbiguousRange(indicator.Value, range))
         {
             // «48» при норме 3.6-5.1: OCR почти наверняка потерял точку (4.8). Не пугаем «отклонением» — просим сверить.
-            // То же, если точка могла потеряться в самом диапазоне и от этого зависит вывод
-            isAbnormal = null;
+            // То же, если точка могла потеряться в самом диапазоне и от этого зависит вывод.
+            // Критическое значение не прячем даже так: ложная тревога с пометкой «сверьте» лучше пропущенной опасности
             confidence = Math.Min(confidence, UncertainConfidence);
+            if (!isCritical)
+            {
+                isAbnormal = null;
+            }
         }
 
         return new AnalyzedIndicatorResponse(
-            reference?.MetricName ?? indicator.TestName, // имя из справочника — одинаковое во всех отчётах (для истории и графиков)
+            metric?.MetricName ?? indicator.TestName, // имя из справочника — одинаковое во всех отчётах (для истории и графиков)
             indicator.Value,
             string.IsNullOrEmpty(indicator.Unit) && reference != null ? reference.Unit : indicator.Unit,
             range,
             isAbnormal,
-            reference?.Category,
-            reference?.DoctorSpecialty,
+            isCritical,
+            metric?.Category,
+            metric?.DoctorSpecialty,
             confidence);
+    }
+
+    // Metric — любая строка этого показателя (название, категория, врач известны, даже если норма для пациента не подошла);
+    // Reference — строка, подходящая по полу и возрасту, или null (тогда — диапазон из бланка).
+    // Строка для конкретного пола точнее общей ("Any"). Пол "Other" или неизвестный — только общие строки
+    private static (ReferenceMedicalValue? Metric, ReferenceMedicalValue? Reference) FindReference(
+        IReadOnlyList<ReferenceMedicalValue> references, string testName, string? sex, int? age)
+    {
+        static bool Same(string a, string b) => string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+
+        var rows = references.Where(r => r.AllNames().Any(n => Same(n, testName))).ToList();
+        if (rows.Count == 0)
+        {
+            // Модель иногда дописывает к названию единицу: «Hemoglobin (g/L)» — пробуем без скобок
+            var withoutParentheses = TrailingParenthesesRegex().Replace(testName, string.Empty);
+            rows = references.Where(r => r.AllNames().Any(n => Same(n, withoutParentheses))).ToList();
+        }
+
+        var reference = rows
+            .Where(r => r.Sex == ReferenceMedicalValue.AnySex || (sex != null && Same(r.Sex, sex)))
+            .Where(r => age is null || ((r.AgeFrom ?? 0) <= age && age <= (r.AgeTo ?? int.MaxValue)))
+            .OrderByDescending(r => r.Sex != ReferenceMedicalValue.AnySex)
+            .FirstOrDefault();
+        return (rows.FirstOrDefault(), reference);
     }
 
     // Целое значение вне диапазона с дробными границами, которое после деления на 10 или 100 попадает в диапазон.
@@ -166,11 +202,11 @@ public partial class DocumentAnalysisService
         return ReferenceRangeEvaluator.IsAbnormal(value, range) != ReferenceRangeEvaluator.IsAbnormal(value, other);
     }
 
-    [System.Text.RegularExpressions.GeneratedRegex(@"\s*\([^()]*\)\s*$")]
-    private static partial System.Text.RegularExpressions.Regex TrailingParenthesesRegex();
+    [GeneratedRegex(@"\s*\([^()]*\)\s*$")]
+    private static partial Regex TrailingParenthesesRegex();
 
-    [System.Text.RegularExpressions.GeneratedRegex(@"^\s*(?<min>\d+(?:\.(?<minFraction>\d+))?)\s*[-–—]\s*(?<max>\d+(?:\.(?<maxFraction>\d+))?)")]
-    private static partial System.Text.RegularExpressions.Regex MixedDecimalsRangeRegex();
+    [GeneratedRegex(@"^\s*(?<min>\d+(?:\.(?<minFraction>\d+))?)\s*[-–—]\s*(?<max>\d+(?:\.(?<maxFraction>\d+))?)")]
+    private static partial Regex MixedDecimalsRangeRegex();
 
     // В формате, который понимает ReferenceRangeEvaluator: "3.9-5.6", "<5.2", ">1.0"; границы — в единицах бланка
     private static string FormatRange(ReferenceMedicalValue reference, double factor)

@@ -1,6 +1,7 @@
 'use client';
 
-// Страница документа: файл, статус обработки и таблица показателей с добавлением/редактированием/удалением.
+// Страница документа: файл, статус обработки, ИИ-анализ (DocumentAnalysisCard) и таблица показателей
+// с добавлением/редактированием/удалением.
 
 import { useCallback, useState } from 'react';
 import Link from 'next/link';
@@ -12,6 +13,7 @@ import Alert from '@/components/ui/Alert';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { AbnormalBadge, StatusBadge } from '@/components/ui/Badge';
 import TestResultFormModal from './TestResultFormModal';
+import DocumentAnalysisCard from './DocumentAnalysisCard';
 import { documentsApi, getErrorMessage, resultsApi } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDate, formatFileSize } from '@/lib/format';
@@ -109,6 +111,8 @@ export default function DocumentDetails() {
         </div>
         {actionError && <Alert className="mt-4">{actionError}</Alert>}
       </Card>
+
+      <DocumentAnalysisCard documentId={document.id} />
 
       <Card
         title="Test results"
