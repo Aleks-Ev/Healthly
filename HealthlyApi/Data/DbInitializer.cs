@@ -27,6 +27,9 @@ public static class DbInitializer
     public const string DoctorPassword = "Doctor123!";
     public const string AdminEmail = "admin@healthly.com";
     public const string AdminPassword = "Admin123!";
+    public const string LabStaffEmail = "lab@healthly.com";
+    public const string LabStaffPassword = "Lab123!";
+    private const string DemoLaboratoryName = "Healthly Partner Lab — Istanbul";
 
     // Сколько месяцев истории и сколько дней назад был последний анализ
     private const int HistoryMonths = 6;
@@ -60,6 +63,8 @@ public static class DbInitializer
         }
 
         await SyncReferenceValuesAsync(app, context);
+        // Пациентам, зарегистрированным до появления Healthly ID, — выдать код (во всех окружениях)
+        await PatientCodes.AssignMissingAsync(context);
 
         if (!app.Environment.IsDevelopment())
         {
@@ -74,7 +79,39 @@ public static class DbInitializer
             var storage = services.GetRequiredService<FileStorageService>();
             var resetHistory = app.Configuration.GetValue<bool>("DemoData:ResetHistory");
             await SeedDemoAccountsAsync(app.Logger, context, passwords, storage, resetHistory);
+            await SeedDemoLaboratoryAsync(app.Logger, context, passwords);
+            await PatientCodes.AssignMissingAsync(context);
         }
+    }
+
+    // Демо-лаборатория и её сотрудник — чтобы рабочее место /lab можно было открыть сразу (только Development).
+    // Ничего не меняет, если аккаунт уже есть
+    private static async Task SeedDemoLaboratoryAsync(ILogger logger, AppDbContext context, PasswordService passwords)
+    {
+        if (await context.Users.AnyAsync(u => u.Email == LabStaffEmail))
+        {
+            return;
+        }
+
+        var laboratory = await context.Laboratories.FirstOrDefaultAsync(l => l.Name == DemoLaboratoryName);
+        if (laboratory == null)
+        {
+            laboratory = new Laboratory { Name = DemoLaboratoryName, City = TestingCities.Istanbul, Address = "Demo street 1, Istanbul" };
+            context.Laboratories.Add(laboratory);
+            await context.SaveChangesAsync();
+        }
+
+        var staff = new User
+        {
+            Email = LabStaffEmail,
+            FullName = "Deniz Lab",
+            Role = Roles.LabStaff,
+            LaboratoryId = laboratory.Id,
+        };
+        staff.PasswordHash = passwords.Hash(staff, LabStaffPassword);
+        context.Users.Add(staff);
+        await context.SaveChangesAsync();
+        logger.LogInformation("Demo laboratory staff account created: {Email}", LabStaffEmail);
     }
 
     // Справочник норм: Data/reference-values.csv → таблица ReferenceMedicalValues (во всех окружениях, при каждом запуске).

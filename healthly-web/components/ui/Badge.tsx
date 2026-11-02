@@ -17,10 +17,11 @@ export default function Badge({ tone = 'neutral', children }: { tone?: Tone; chi
   return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${TONES[tone]}`}>{children}</span>;
 }
 
-const ROLE_TONES: Record<Role, Tone> = { Patient: 'green', Doctor: 'blue', Admin: 'purple' };
+const ROLE_TONES: Record<Role, Tone> = { Patient: 'green', Doctor: 'blue', Admin: 'purple', LabStaff: 'amber' };
+const ROLE_LABELS: Record<Role, string> = { Patient: 'Patient', Doctor: 'Doctor', Admin: 'Admin', LabStaff: 'Lab staff' };
 
 export function RoleBadge({ role }: { role: Role }) {
-  return <Badge tone={ROLE_TONES[role]}>{role}</Badge>;
+  return <Badge tone={ROLE_TONES[role]}>{ROLE_LABELS[role]}</Badge>;
 }
 
 const STATUS_TONES: Record<DocumentStatus, Tone> = { Pending: 'neutral', Processing: 'amber', Completed: 'green', Error: 'red' };

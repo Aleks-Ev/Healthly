@@ -72,6 +72,7 @@ public class AuthController : ControllerBase
             AccessCode = string.IsNullOrEmpty(accessCode) ? null : accessCode,
             MarketingOptIn = request.MarketingOptIn,
             ConsentsAcceptedAt = DateTime.UtcNow,
+            PatientCode = await PatientCodes.GenerateUniqueAsync(_context), // Healthly ID для лаборатории
         };
         user.PasswordHash = _passwords.Hash(user, request.Password);
 
@@ -101,7 +102,7 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<AuthResponse>> Login(LoginRequest request)
     {
         var email = UserMappings.NormalizeEmail(request.Email);
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+        var user = await _context.Users.Include(u => u.Laboratory).FirstOrDefaultAsync(u => u.Email == email);
 
         if (user == null || !_passwords.Verify(user, request.Password))
         {
@@ -243,7 +244,7 @@ public class AuthController : ControllerBase
             return null;
         }
 
-        var users = tracking ? _context.Users : _context.Users.AsNoTracking();
+        var users = tracking ? _context.Users.Include(u => u.Laboratory) : _context.Users.AsNoTracking().Include(u => u.Laboratory);
         return await users.FirstOrDefaultAsync(u => u.Id == userId);
     }
 

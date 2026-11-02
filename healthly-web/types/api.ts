@@ -1,7 +1,8 @@
 // Типы, повторяющие DTO бэкенда (HealthlyApi/Dtos). Меняются вместе с API.
 
-export type Role = 'Patient' | 'Doctor' | 'Admin';
-export const ROLES: Role[] = ['Patient', 'Doctor', 'Admin'];
+// LabStaff — сотрудник лаборатории-партнёра: загружает бланки пациентов и подтверждает анализ (рабочее место /lab)
+export type Role = 'Patient' | 'Doctor' | 'Admin' | 'LabStaff';
+export const ROLES: Role[] = ['Patient', 'Doctor', 'Admin', 'LabStaff'];
 
 export type DocumentStatus = 'Pending' | 'Processing' | 'Completed' | 'Error';
 export const DOCUMENT_STATUSES: DocumentStatus[] = ['Pending', 'Processing', 'Completed', 'Error'];
@@ -18,6 +19,11 @@ export interface User {
   dateOfBirth: string | null; // "YYYY-MM-DD"
   city: string;
   createdAt: string;
+  // Healthly ID пациента ("HL-7K3P9Q"): называет в лаборатории или показывает QR-код; null — не пациент
+  patientCode: string | null;
+  // Для LabStaff — лаборатория сотрудника
+  laboratoryId: number | null;
+  laboratoryName: string | null;
 }
 
 // Ответ входа, регистрации и POST /api/auth/refresh
@@ -76,6 +82,8 @@ export interface CreateUserRequest {
   dateOfBirth?: string | null; // "YYYY-MM-DD", возраст 18–120
   city?: string | null;
   role: Role;
+  // Обязательна для LabStaff
+  laboratoryId?: number | null;
 }
 
 // role и password отправляет только Admin; null — не менять
@@ -91,6 +99,8 @@ export interface UpdateUserRequest {
   city?: string | null;
   role?: Role | null;
   password?: string | null;
+  // Только Admin; для LabStaff обязательна
+  laboratoryId?: number | null;
 }
 
 export interface MedicalDocument {
@@ -216,4 +226,55 @@ export interface IndicatorTrend {
   referenceMin: number | null;
   referenceMax: number | null;
   points: TrendPoint[];
+}
+
+// --- Лаборатории и рабочее место сотрудника (LabStaff) ---
+
+export interface Laboratory {
+  id: number;
+  name: string;
+  city: string;
+  address: string;
+  staffCount: number;
+}
+
+export interface LaboratoryRequest {
+  name: string;
+  city: string;
+  address?: string | null;
+}
+
+// GET /api/lab/patients/{code} — только то, что нужно, чтобы убедиться, что это тот самый пациент
+export interface LabPatient {
+  id: number;
+  patientCode: string;
+  fullName: string;
+  dateOfBirth: string | null;
+  gender: string;
+}
+
+export type LabAnalysisStatus = 'NotAnalyzed' | 'Draft' | 'Confirmed';
+
+// GET /api/lab/documents — очередь лаборатории
+export interface LabDocument {
+  id: number;
+  patientId: number;
+  patientName: string;
+  patientCode: string;
+  originalFileName: string;
+  uploadDate: string;
+  uploadedBy: string;
+  analysisStatus: LabAnalysisStatus;
+  resultsCount: number;
+  criticalCount: number;
+}
+
+// GET /api/documents/{id}/history — журнал действий с документом
+export interface AuditEvent {
+  at: string;
+  userName: string;
+  userRole: string;
+  laboratoryName: string | null;
+  action: 'PatientLookedUp' | 'DocumentUploaded' | 'DocumentAnalyzed' | 'AnalysisConfirmed' | 'DocumentDeleted';
+  details: string;
 }

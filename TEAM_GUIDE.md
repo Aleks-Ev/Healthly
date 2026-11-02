@@ -165,6 +165,7 @@ npm run dev        # http://localhost:3000
 | Patient | `patient@healthly.com` | `Patient123!` | Elif Kaya, Стамбул. 6 анализов за последние 6 месяцев (глюкоза, холестерин, гемоглобин — выходят из отклонений к норме) + 1 документ «на проверке» |
 | Doctor | `doctor@healthly.com` | `Doctor123!` | Dr. Mehmet Yilmaz, Анкара. Своя история анализов, всё в норме |
 | Admin | `admin@healthly.com` | `Admin123!` | Healthly Admin, Измир. Своя история анализов, холестерин растёт |
+| LabStaff | `lab@healthly.com` | `Lab123!` | Deniz Lab — сотрудник демо-лаборатории «Healthly Partner Lab — Istanbul». После входа — рабочее место `/lab`: найти пациента по Healthly ID (у `patient@` он в профиле), загрузить бланк, проанализировать и подтвердить |
 
 - Аккаунт создаётся, **только если такого email ещё нет**; пароль существующего аккаунта не перезаписывается.
   Например, у владельца проекта `admin@healthly.com` был создан раньше — там другой пароль.

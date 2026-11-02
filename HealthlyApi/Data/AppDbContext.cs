@@ -16,6 +16,8 @@ public class AppDbContext : DbContext
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ReferenceMedicalValue> ReferenceMedicalValues => Set<ReferenceMedicalValue>();
     public DbSet<DocumentAnalysis> DocumentAnalyses => Set<DocumentAnalysis>();
+    public DbSet<Laboratory> Laboratories => Set<Laboratory>();
+    public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -76,6 +78,36 @@ public class AppDbContext : DbContext
             result.Property(r => r.Value).HasMaxLength(50);
             result.Property(r => r.Unit).HasMaxLength(30);
             result.Property(r => r.ReferenceRange).HasMaxLength(50);
+        });
+
+        modelBuilder.Entity<Laboratory>(laboratory =>
+        {
+            laboratory.Property(l => l.Name).HasMaxLength(200);
+            laboratory.Property(l => l.City).HasMaxLength(50);
+            laboratory.Property(l => l.Address).HasMaxLength(300);
+        });
+
+        // Healthly ID уникален; лабораторию удалили — сотрудник и документы остаются, связь обнуляется
+        modelBuilder.Entity<User>(user =>
+        {
+            user.HasIndex(u => u.PatientCode).IsUnique();
+            user.Property(u => u.PatientCode).HasMaxLength(20);
+            user.HasOne(u => u.Laboratory).WithMany().HasForeignKey(u => u.LaboratoryId).OnDelete(DeleteBehavior.SetNull);
+        });
+        modelBuilder.Entity<MedicalDocument>(document =>
+        {
+            document.HasIndex(d => d.LaboratoryId);
+            document.HasOne(d => d.Laboratory).WithMany().HasForeignKey(d => d.LaboratoryId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<AuditEvent>(audit =>
+        {
+            audit.HasIndex(a => a.DocumentId);
+            audit.HasIndex(a => a.PatientId);
+            audit.Property(a => a.UserName).HasMaxLength(200);
+            audit.Property(a => a.UserRole).HasMaxLength(20);
+            audit.Property(a => a.Action).HasMaxLength(50);
+            audit.Property(a => a.Details).HasMaxLength(500);
         });
 
         modelBuilder.Entity<DocumentAnalysis>(analysis =>

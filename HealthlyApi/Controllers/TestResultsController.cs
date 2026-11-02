@@ -9,7 +9,7 @@ using HealthlyApi.Services.Ai;
 
 namespace HealthlyApi.Controllers;
 
-// Показатели анализов внутри документа. Доступ: владелец документа, Doctor, Admin.
+// Показатели анализов внутри документа. Доступ: владелец документа, Doctor, Admin и сотрудник лаборатории, загрузившей документ.
 [ApiController]
 [Route("api/results")]
 [Tags("Test Results")]
@@ -47,7 +47,7 @@ public class TestResultsController : ControllerBase
             return Problem(detail: "Document not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        if (!User.CanAccessUser(document.UserId))
+        if (!User.CanAccessDocument(document))
         {
             return Forbid();
         }
@@ -88,13 +88,13 @@ public class TestResultsController : ControllerBase
             return ResultNotFound();
         }
 
-        if (!User.CanAccessUser(result.MedicalDocument!.UserId))
+        if (!User.CanAccessDocument(result.MedicalDocument!))
         {
             return Forbid();
         }
 
         Apply(result, request);
-        await MarkCriticalAsync(result, result.MedicalDocument.UserId);
+        await MarkCriticalAsync(result, result.MedicalDocument!.UserId);
         await _context.SaveChangesAsync();
 
         return result.ToResponse();
@@ -117,7 +117,7 @@ public class TestResultsController : ControllerBase
             return ResultNotFound();
         }
 
-        if (!User.CanAccessUser(result.MedicalDocument!.UserId))
+        if (!User.CanAccessDocument(result.MedicalDocument!))
         {
             return Forbid();
         }

@@ -29,6 +29,7 @@ interface DocumentAnalysisCardProps {
   documentId: number;
   existingResultsCount: number;
   onConfirmed: (document: MedicalDocumentDetails) => void;
+  onAnalyzed?: () => void;
 }
 
 function needsCheck(indicator: AnalyzedIndicator) {
@@ -52,7 +53,7 @@ function rowClass(indicator: AnalyzedIndicator) {
   return needsCheck(indicator) ? 'bg-amber-50/60' : '';
 }
 
-export default function DocumentAnalysisCard({ documentId, existingResultsCount, onConfirmed }: DocumentAnalysisCardProps) {
+export default function DocumentAnalysisCard({ documentId, existingResultsCount, onConfirmed, onAnalyzed }: DocumentAnalysisCardProps) {
   // { analysis: null } — документ ещё не анализировали; data === null — идёт загрузка
   const load = useCallback(() => documentsApi.getAnalysis(documentId).then((analysis) => ({ analysis })), [documentId]);
   const { data, error: loadError, setData } = useApiData(load);
@@ -65,6 +66,7 @@ export default function DocumentAnalysisCard({ documentId, existingResultsCount,
     setIsAnalyzing(true);
     try {
       setData({ analysis: await documentsApi.analyze(documentId, force) });
+      onAnalyzed?.();
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {

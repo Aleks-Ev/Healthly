@@ -48,6 +48,19 @@ export default function ProfileCard({ user, onEdit, onChangePassword }: ProfileC
           <RoleBadge role={user.role} />
         </div>
       </div>
+      {user.patientCode && (
+        <div className="mb-5 rounded-2xl bg-[#f3f6ef] px-4 py-3">
+          <div className="text-xs text-[#6b756e]">Healthly ID</div>
+          <div className="mt-0.5 font-mono text-lg font-semibold tracking-wider">{user.patientCode}</div>
+          <div className="mt-1 text-xs text-[#6b756e]">Tell this ID at a partner laboratory so they can add your results.</div>
+        </div>
+      )}
+      {user.laboratoryName && (
+        <div className="mb-5 rounded-2xl bg-[#f3f6ef] px-4 py-3 text-sm">
+          <div className="text-xs text-[#6b756e]">Laboratory</div>
+          <div className="font-medium">{user.laboratoryName}</div>
+        </div>
+      )}
       <dl className="space-y-2.5 text-sm">
         {rows.map(([label, value]) => (
           <div key={label} className="flex justify-between gap-4">

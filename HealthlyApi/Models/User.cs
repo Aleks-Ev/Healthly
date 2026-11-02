@@ -21,4 +21,12 @@ public class User
     public string? AccessCode { get; set; } // Необязательный код доступа (промо/партнёрский)
     public bool MarketingOptIn { get; set; } // Согласие на маркетинговые сообщения
     public DateTime? ConsentsAcceptedAt { get; set; } // Когда приняты Privacy Policy/Terms/Authorization
+
+    // Healthly ID пациента ("HL-7K3P9Q"): пациент называет его или показывает QR-код в лаборатории,
+    // сотрудник по нему находит пациента. Есть только у пациентов (PatientCodes)
+    public string? PatientCode { get; set; }
+
+    // Для роли LabStaff — лаборатория, от имени которой работает сотрудник
+    public int? LaboratoryId { get; set; }
+    public Laboratory? Laboratory { get; set; }
 }

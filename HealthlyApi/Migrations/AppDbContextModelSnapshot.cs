@@ -23,6 +23,58 @@ namespace HealthlyApi.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("HealthlyApi.Models.AuditEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Details")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int?>("DocumentId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("LaboratoryId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("PatientId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("UserRole")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentId");
+
+                    b.HasIndex("PatientId");
+
+                    b.ToTable("AuditEvents");
+                });
+
             modelBuilder.Entity("HealthlyApi.Models.DocumentAnalysis", b =>
                 {
                     b.Property<int>("Id")
@@ -75,6 +127,37 @@ namespace HealthlyApi.Migrations
                     b.ToTable("DocumentAnalyses");
                 });
 
+            modelBuilder.Entity("HealthlyApi.Models.Laboratory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Address")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("City")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Laboratories");
+                });
+
             modelBuilder.Entity("HealthlyApi.Models.MedicalDocument", b =>
                 {
                     b.Property<int>("Id")
@@ -96,6 +179,9 @@ namespace HealthlyApi.Migrations
                     b.Property<long>("FileSizeBytes")
                         .HasColumnType("bigint");
 
+                    b.Property<int?>("LaboratoryId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("OriginalFileName")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -109,10 +195,15 @@ namespace HealthlyApi.Migrations
                     b.Property<DateTime>("UploadDate")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int?>("UploadedByUserId")
+                        .HasColumnType("integer");
+
                     b.Property<int>("UserId")
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("LaboratoryId");
 
                     b.HasIndex("UserId");
 
@@ -326,12 +417,19 @@ namespace HealthlyApi.Migrations
                     b.Property<double?>("Height")
                         .HasColumnType("double precision");
 
+                    b.Property<int?>("LaboratoryId")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("MarketingOptIn")
                         .HasColumnType("boolean");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("PatientCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("PhoneNumber")
                         .IsRequired()
@@ -351,6 +449,11 @@ namespace HealthlyApi.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
+                    b.HasIndex("LaboratoryId");
+
+                    b.HasIndex("PatientCode")
+                        .IsUnique();
+
                     b.ToTable("Users");
                 });
 
@@ -367,11 +470,18 @@ namespace HealthlyApi.Migrations
 
             modelBuilder.Entity("HealthlyApi.Models.MedicalDocument", b =>
                 {
+                    b.HasOne("HealthlyApi.Models.Laboratory", "Laboratory")
+                        .WithMany()
+                        .HasForeignKey("LaboratoryId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("HealthlyApi.Models.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Laboratory");
 
                     b.Navigation("User");
                 });
@@ -396,6 +506,16 @@ namespace HealthlyApi.Migrations
                         .IsRequired();
 
                     b.Navigation("MedicalDocument");
+                });
+
+            modelBuilder.Entity("HealthlyApi.Models.User", b =>
+                {
+                    b.HasOne("HealthlyApi.Models.Laboratory", "Laboratory")
+                        .WithMany()
+                        .HasForeignKey("LaboratoryId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Laboratory");
                 });
 
             modelBuilder.Entity("HealthlyApi.Models.MedicalDocument", b =>

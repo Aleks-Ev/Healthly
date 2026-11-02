@@ -19,12 +19,14 @@ public class DocumentsController : ControllerBase
     private readonly AppDbContext _context;
     private readonly FileStorageService _storage;
     private readonly DocumentAnalysisService _analysis;
+    private readonly AuditLog _audit;
 
-    public DocumentsController(AppDbContext context, FileStorageService storage, DocumentAnalysisService analysis)
+    public DocumentsController(AppDbContext context, FileStorageService storage, DocumentAnalysisService analysis, AuditLog audit)
     {
         _context = context;
         _storage = storage;
         _analysis = analysis;
+        _audit = audit;
     }
 
     /// <summary>List a user's documents</summary>
@@ -86,28 +88,24 @@ public class DocumentsController : ControllerBase
             return Problem(detail: "User not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        var contentType = FileStorageService.GetContentType(file.FileName);
-
-        if (contentType == null)
+        if (FileStorageService.ValidateUpload(file) is { } invalid)
         {
-            return Problem(detail: $"Allowed file types: {string.Join(", ", FileStorageService.AllowedExtensions)}", statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        if (file.Length == 0 || file.Length > FileStorageService.MaxFileSizeBytes)
-        {
-            return Problem(detail: "File must be between 1 byte and 10 MB", statusCode: StatusCodes.Status400BadRequest);
+            return Problem(detail: invalid, statusCode: StatusCodes.Status400BadRequest);
         }
 
         var document = new MedicalDocument
         {
             UserId = userId,
+            UploadedByUserId = User.GetUserId(),
             OriginalFileName = Path.GetFileName(file.FileName),
             FilePath = await _storage.SaveAsync(file, cancellationToken),
-            ContentType = contentType,
+            ContentType = FileStorageService.GetContentType(file.FileName)!,
             FileSizeBytes = file.Length,
         };
 
         _context.MedicalDocuments.Add(document);
+        await _context.SaveChangesAsync(cancellationToken);
+        _audit.Add(User, AuditActions.DocumentUploaded, document.Id, userId, document.OriginalFileName);
         await _context.SaveChangesAsync(cancellationToken);
 
         return CreatedAtAction(nameof(GetDocument), new { id = document.Id }, document.ToDetailsResponse());
@@ -133,7 +131,7 @@ public class DocumentsController : ControllerBase
             return DocumentNotFound();
         }
 
-        if (!User.CanAccessUser(document.UserId))
+        if (!User.CanAccessDocument(document))
         {
             return Forbid();
         }
@@ -160,7 +158,7 @@ public class DocumentsController : ControllerBase
             return DocumentNotFound();
         }
 
-        if (!User.CanAccessUser(document.UserId))
+        if (!User.CanAccessDocument(document))
         {
             return Forbid();
         }
@@ -189,7 +187,7 @@ public class DocumentsController : ControllerBase
     ///
     /// The result is saved as a **draft** (<c>confirmedAt: null</c>). Calling this again returns the saved draft without a new
     /// AI request; <c>?force=true</c> analyzes the file again and resets the confirmation. The values reach the history and charts
-    /// only after <c>POST /api/documents/{id}/analysis/confirm</c>. Allowed for the owner, Doctor and Admin.
+    /// only after <c>POST /api/documents/{id}/analysis/confirm</c>. Allowed for the owner, Doctor, Admin and staff of the laboratory that uploaded it.
     /// </remarks>
     /// <param name="id">Document id.</param>
     /// <param name="force">Analyze the file again even if a saved analysis exists (uses the AI quota).</param>
@@ -213,6 +211,8 @@ public class DocumentsController : ControllerBase
             return error!;
         }
 
+        // В журнал — только настоящий вызов ИИ (сохранённый черновик просто отдаётся)
+        var isNewAnalysis = force || !await _context.DocumentAnalyses.AnyAsync(a => a.MedicalDocumentId == id, cancellationToken);
         var result = await _analysis.AnalyzeAsync(document, document.User!, force, cancellationToken);
 
         if (result == null)
@@ -220,13 +220,18 @@ public class DocumentsController : ControllerBase
             return Problem(detail: "File is missing from storage", statusCode: StatusCodes.Status404NotFound);
         }
 
+        if (isNewAnalysis)
+        {
+            _audit.Add(User, AuditActions.DocumentAnalyzed, id, document.UserId, result.Model);
+            await _context.SaveChangesAsync(cancellationToken);
+        }
         return result;
     }
 
     /// <summary>Get the saved AI analysis of a document</summary>
     /// <remarks>
     /// The draft or confirmed analysis created by <c>POST /api/documents/{id}/analyze</c>. Normal / out of range / critical is
-    /// evaluated again on every request with the current reference norms. Allowed for the owner, Doctor and Admin.
+    /// evaluated again on every request with the current reference norms. Allowed for the owner, Doctor, Admin and the uploading lab's staff.
     /// </remarks>
     /// <response code="200">The saved analysis.</response>
     /// <response code="403">A patient requested another user's document.</response>
@@ -254,7 +259,7 @@ public class DocumentsController : ControllerBase
     /// Send the indicators after checking them against the original report (fix misread values, remove wrong rows).
     /// They **replace all test results of the document**: values are converted to the reference units (e.g. hemoglobin
     /// 12 g/dL → 120 g/L) so the history and charts use one unit, then <c>isAbnormal</c> / <c>isCritical</c> are set by the norms.
-    /// The document becomes <c>Completed</c> and the analysis gets <c>confirmedAt</c>. Allowed for the owner, Doctor and Admin.
+    /// The document becomes <c>Completed</c> and the analysis gets <c>confirmedAt</c>. Allowed for the owner, Doctor, Admin and the uploading lab's staff.
     /// </remarks>
     /// <response code="200">The document with its saved test results.</response>
     /// <response code="400">Validation failed; see <c>errors</c>.</response>
@@ -273,6 +278,8 @@ public class DocumentsController : ControllerBase
             return error!;
         }
 
+        // Запись в журнал сохраняется в той же транзакции, что и показатели
+        _audit.Add(User, AuditActions.AnalysisConfirmed, id, document.UserId, $"{request.Indicators.Count} indicators");
         var saved = await _analysis.ConfirmAsync(document, document.User!, request, User.GetUserId()!.Value, cancellationToken);
         if (saved == null)
         {
@@ -299,7 +306,7 @@ public class DocumentsController : ControllerBase
             return (null, DocumentNotFound());
         }
 
-        return User.CanAccessUser(document.UserId) ? (document, null) : (null, Forbid());
+        return User.CanAccessDocument(document) ? (document, null) : (null, Forbid());
     }
 
     /// <summary>Change a document's processing status (Doctor, Admin)</summary>
@@ -355,12 +362,47 @@ public class DocumentsController : ControllerBase
             return Forbid();
         }
 
-        // Показатели удаляются каскадно (ON DELETE CASCADE в БД)
+        // Показатели удаляются каскадно (ON DELETE CASCADE в БД); запись журнала остаётся — по ней видно, кто удалил
         _context.MedicalDocuments.Remove(document);
+        _audit.Add(User, AuditActions.DocumentDeleted, document.Id, document.UserId, document.OriginalFileName);
         await _context.SaveChangesAsync();
         _storage.Delete(document.FilePath);
 
         return NoContent();
+    }
+
+    /// <summary>History of a document</summary>
+    /// <remarks>
+    /// Who uploaded the document (and from which laboratory), who ran the AI analysis and who confirmed the values — oldest first.
+    /// Allowed for everyone who can open the document.
+    /// </remarks>
+    /// <response code="200">The events.</response>
+    /// <response code="403">No access to the document.</response>
+    /// <response code="404">Document not found.</response>
+    [HttpGet("{id:int}/history")]
+    [ProducesResponseType<List<AuditEventResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<List<AuditEventResponse>>> GetHistory(int id, CancellationToken cancellationToken)
+    {
+        var (document, error) = await FindAccessibleDocumentAsync(id, cancellationToken);
+        if (document == null)
+        {
+            return error!;
+        }
+
+        return await _context.AuditEvents
+            .AsNoTracking()
+            .Where(e => e.DocumentId == id)
+            .OrderBy(e => e.At)
+            .Select(e => new AuditEventResponse(
+                e.At,
+                e.UserName,
+                e.UserRole,
+                _context.Laboratories.Where(l => l.Id == e.LaboratoryId).Select(l => l.Name).FirstOrDefault(),
+                e.Action,
+                e.Details))
+            .ToListAsync(cancellationToken);
     }
 
     private ObjectResult DocumentNotFound() => Problem(detail: "Document not found", statusCode: StatusCodes.Status404NotFound);

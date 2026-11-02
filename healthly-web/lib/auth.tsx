@@ -91,6 +91,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+// Куда вести пользователя после входа: сотрудника лаборатории — на рабочее место, остальных — в личный кабинет
+export function homePath(role: Role): string {
+  return role === 'LabStaff' ? '/lab' : '/dashboard';
+}
+
 export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
   if (!context) {

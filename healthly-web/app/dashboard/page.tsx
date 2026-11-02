@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import AppShell from '@/components/layout/AppShell';
 import ProfileCard from '@/components/users/ProfileCard';
 import UserFormModal from '@/components/users/UserFormModal';
 import ChangePasswordModal from '@/components/users/ChangePasswordModal';
 import PatientRecords from '@/components/records/PatientRecords';
-import { useAuth } from '@/lib/auth';
+import { homePath, useAuth } from '@/lib/auth';
 
 export default function DashboardPage() {
   return (
@@ -21,8 +22,17 @@ function Dashboard() {
   const { user, setUser, hasRole } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const router = useRouter();
 
-  if (!user) {
+  // У сотрудника лаборатории нет своей медкарты — его кабинет это рабочее место /lab
+  const home = user ? homePath(user.role) : '/dashboard';
+  useEffect(() => {
+    if (home !== '/dashboard') {
+      router.replace(home);
+    }
+  }, [home, router]);
+
+  if (!user || home !== '/dashboard') {
     return null;
   }
 

@@ -4,10 +4,15 @@
 import type {
   AuthResponse,
   ChangePasswordRequest,
+  AuditEvent,
   ConfirmAnalysisRequest,
   CreateUserRequest,
   DocumentAnalysis,
   DocumentStatus,
+  LabDocument,
+  LabPatient,
+  Laboratory,
+  LaboratoryRequest,
   IndicatorTrend,
   LoginRequest,
   MedicalDocument,
@@ -264,6 +269,8 @@ export const documentsApi = {
     }
   },
   // Подтверждённые показатели заменяют все показатели документа и попадают в историю и графики
+  // Журнал: кто загрузил (из какой лаборатории), кто запускал анализ, кто подтвердил
+  history: (id: number) => request<AuditEvent[]>(`/documents/${id}/history`),
   confirmAnalysis: (id: number, data: ConfirmAnalysisRequest) =>
     request<MedicalDocumentDetails>(`/documents/${id}/analysis/confirm`, { method: 'POST', json: data }),
   // Файл нужно скачивать с заголовком Authorization, поэтому обычная ссылка не подходит
@@ -283,4 +290,22 @@ export const resultsApi = {
     request<TestResult>(`/documents/${documentId}/results`, { method: 'POST', json: data }),
   update: (id: number, data: TestResultRequest) => request<TestResult>(`/results/${id}`, { method: 'PUT', json: data }),
   remove: (id: number) => request<void>(`/results/${id}`, { method: 'DELETE' }),
+};
+
+// Лаборатории-партнёры (Admin)
+export const laboratoriesApi = {
+  list: () => request<Laboratory[]>('/laboratories'),
+  create: (data: LaboratoryRequest) => request<Laboratory>('/laboratories', { method: 'POST', json: data }),
+  remove: (id: number) => request<void>(`/laboratories/${id}`, { method: 'DELETE' }),
+};
+
+// Рабочее место сотрудника лаборатории (LabStaff). code — Healthly ID пациента ("HL-7K3P9Q", регистр и пробелы не важны)
+export const labApi = {
+  findPatient: (code: string) => request<LabPatient>(`/lab/patients/${encodeURIComponent(code.trim())}`),
+  upload: (code: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request<MedicalDocumentDetails>(`/lab/patients/${encodeURIComponent(code.trim())}/documents`, { method: 'POST', formData });
+  },
+  documents: (pendingOnly = false) => request<LabDocument[]>(`/lab/documents${pendingOnly ? '?pending=true' : ''}`),
 };

@@ -42,6 +42,7 @@ if (jwtOptions.Key.Length < 32)
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddSingleton<TokenService>();
 builder.Services.AddScoped<RefreshTokenService>();
+builder.Services.AddScoped<AuditLog>(); // журнал действий с документами (кто загрузил, кто подтвердил)
 builder.Services.AddSingleton<PasswordService>();
 builder.Services.AddSingleton<FileStorageService>();
 

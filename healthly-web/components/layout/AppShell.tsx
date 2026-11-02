@@ -5,7 +5,7 @@
 import { Suspense, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, LogOut, Menu, Users, X } from 'lucide-react';
+import { Building2, FlaskConical, LayoutDashboard, LogOut, Menu, Users, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { RoleBadge } from '@/components/ui/Badge';
 import Logo from './Logo';
@@ -20,8 +20,10 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: '/dashboard', label: 'My health', icon: LayoutDashboard },
+  { href: '/dashboard', label: 'My health', icon: LayoutDashboard, roles: ['Patient', 'Doctor', 'Admin'] },
+  { href: '/lab', label: 'Laboratory', icon: FlaskConical, roles: ['LabStaff'] },
   { href: '/admin/users', label: 'Users', icon: Users, roles: ['Doctor', 'Admin'] },
+  { href: '/admin/laboratories', label: 'Laboratories', icon: Building2, roles: ['Admin'] },
 ];
 
 interface AppShellProps {

@@ -7,7 +7,7 @@ import AuthLayout from '@/components/layout/AuthLayout';
 import { TextField } from '@/components/ui/Field';
 import Button from '@/components/ui/Button';
 import Alert from '@/components/ui/Alert';
-import { useAuth } from '@/lib/auth';
+import { homePath, useAuth } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/api';
 
 export default function LoginPage() {
@@ -21,7 +21,7 @@ export default function LoginPage() {
   // Уже вошли — сразу в кабинет
   useEffect(() => {
     if (user) {
-      router.replace('/dashboard');
+      router.replace(homePath(user.role));
     }
   }, [user, router]);
 
@@ -30,8 +30,8 @@ export default function LoginPage() {
     setError(null);
     setIsSubmitting(true);
     try {
-      await login({ email, password });
-      router.push('/dashboard');
+      const signedIn = await login({ email, password });
+      router.push(homePath(signedIn.role));
     } catch (err) {
       setError(getErrorMessage(err));
       setIsSubmitting(false);

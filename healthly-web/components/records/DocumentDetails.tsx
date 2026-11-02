@@ -15,6 +15,7 @@ import { AbnormalBadge, StatusBadge } from '@/components/ui/Badge';
 import TestResultFormModal from './TestResultFormModal';
 import DocumentAnalysisCard from './DocumentAnalysisCard';
 import CriticalBanner from './CriticalBanner';
+import DocumentHistory from './DocumentHistory';
 import { documentsApi, getErrorMessage, resultsApi } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDate, formatFileSize } from '@/lib/format';
@@ -34,6 +35,8 @@ export default function DocumentDetails() {
   const [editingResult, setEditingResult] = useState<TestResult | null | undefined>(undefined);
   const [resultToDelete, setResultToDelete] = useState<TestResult | null>(null);
   const [isDeletingDocument, setIsDeletingDocument] = useState(false);
+  // Растёт после анализа/подтверждения — история документа перезагружается
+  const [historyVersion, setHistoryVersion] = useState(0);
 
   if (loadError) {
     return <Alert>{loadError}</Alert>;
@@ -46,7 +49,8 @@ export default function DocumentDetails() {
   const isOwner = document.userId === user.id;
   const isStaff = hasRole('Doctor', 'Admin');
   const canDeleteDocument = isOwner || hasRole('Admin');
-  const backHref = isOwner ? '/dashboard' : `/admin/users/${document.userId}`;
+  // Сотрудник лаборатории возвращается в очередь лаборатории, а не в медкарту пациента (к ней у него нет доступа)
+  const backHref = hasRole('LabStaff') ? '/lab' : isOwner ? '/dashboard' : `/admin/users/${document.userId}`;
 
   const handleStatusChange = async (status: DocumentStatus) => {
     setActionError(null);
@@ -70,7 +74,7 @@ export default function DocumentDetails() {
     <div className="space-y-6">
       <Link href={backHref} className="inline-flex items-center gap-1.5 text-sm text-[#6b756e] hover:text-[#242b26]">
         <ArrowLeft className="w-4 h-4" />
-        Back to records
+        {hasRole('LabStaff') ? 'Back to laboratory' : 'Back to records'}
       </Link>
 
       <Card>
@@ -118,7 +122,11 @@ export default function DocumentDetails() {
       <DocumentAnalysisCard
         documentId={document.id}
         existingResultsCount={document.results.length}
-        onConfirmed={setDocument}
+        onConfirmed={(updated) => {
+          setDocument(updated);
+          setHistoryVersion((version) => version + 1);
+        }}
+        onAnalyzed={() => setHistoryVersion((version) => version + 1)}
       />
 
       <Card
@@ -168,6 +176,8 @@ export default function DocumentDetails() {
           </div>
         )}
       </Card>
+
+      <DocumentHistory documentId={document.id} version={historyVersion} />
 
       <TestResultFormModal
         isOpen={editingResult !== undefined}

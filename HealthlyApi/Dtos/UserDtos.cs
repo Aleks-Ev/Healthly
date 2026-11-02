@@ -15,7 +15,10 @@ public record UserResponse(
     string PhoneNumber,
     DateOnly? DateOfBirth,
     string City,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    string? PatientCode,      // Healthly ID пациента ("HL-7K3P9Q"): называет в лаборатории или показывает QR-код
+    int? LaboratoryId,        // для LabStaff — лаборатория сотрудника
+    string? LaboratoryName);
 
 // POST /api/users — создание пользователя администратором
 public class CreateUserRequest
@@ -29,8 +32,11 @@ public class CreateUserRequest
     [Required, MinLength(8), MaxLength(128)]
     public string Password { get; set; } = string.Empty;
 
-    [Required, AllowedValues(Roles.Patient, Roles.Doctor, Roles.Admin)]
+    [Required, AllowedValues(Roles.Patient, Roles.Doctor, Roles.Admin, Roles.LabStaff)]
     public string Role { get; set; } = Roles.Patient;
+
+    // Обязательна для LabStaff (проверяет контроллер)
+    public int? LaboratoryId { get; set; }
 
     [Range(30, 300)]
     public double? Height { get; set; } // см
@@ -88,8 +94,11 @@ public class UpdateUserRequest
         ErrorMessage = "Select a city where you will be testing")]
     public string? City { get; set; }
 
-    [AllowedValues(Roles.Patient, Roles.Doctor, Roles.Admin, null)]
+    [AllowedValues(Roles.Patient, Roles.Doctor, Roles.Admin, Roles.LabStaff, null)]
     public string? Role { get; set; }
+
+    // Только Admin: лаборатория сотрудника (для LabStaff обязательна); null — не менять
+    public int? LaboratoryId { get; set; }
 
     [MinLength(8), MaxLength(128)]
     public string? Password { get; set; }
@@ -108,7 +117,10 @@ public static class UserMappings
         user.PhoneNumber,
         user.DateOfBirth,
         user.City,
-        user.CreatedAt);
+        user.CreatedAt,
+        user.PatientCode,
+        user.LaboratoryId,
+        user.Laboratory?.Name); // имя есть, если лаборатория загружена (Include)
 
     // "+90 (532) 123-45-67" → "+905321234567"
     public static string NormalizePhone(string phone) => "+" + new string(phone.Where(char.IsDigit).ToArray());

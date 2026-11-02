@@ -142,6 +142,7 @@ They exist only in local development databases.
 | Patient | `patient@healthly.com` | `Patient123!` | **Elif Kaya**, Istanbul. Glucose and cholesterol above normal, hemoglobin below — all back to normal by the latest test. Plus 1 `Pending` document (yesterday) waiting for a doctor |
 | Doctor | `doctor@healthly.com` | `Doctor123!` | **Dr. Mehmet Yilmaz**, Ankara — stable, normal results. Sees all patients and their records, can change document statuses |
 | Admin | `admin@healthly.com` | `Admin123!` | **Healthly Admin**, Izmir — cholesterol and glucose slowly rising out of range (an example of a worsening trend). Full user management |
+| LabStaff | `lab@healthly.com` | `Lab123!` | **Deniz Lab**, staff of *Healthly Partner Lab — Istanbul*. Website only (`/lab`): finds patients by Healthly ID, uploads and confirms their reports |
 
 **Lab history (all three accounts):** 6 lab reports, one per month for the last 6 months (the latest one week before
 the API first started), each with **Glucose** (mmol/L), **Cholesterol** (mmol/L) and **Hemoglobin** (g/L) — so
@@ -307,12 +308,25 @@ Request `{ "email": "patient@healthly.com", "password": "Patient123!" }`. Respon
     "phoneNumber": "+905321112233",
     "dateOfBirth": "1992-04-18",
     "city": "Istanbul",
-    "createdAt": "2026-10-23T00:11:14Z"
+    "createdAt": "2026-10-23T00:11:14Z",
+    "patientCode": "HL-7K3P9Q",
+    "laboratoryId": null,
+    "laboratoryName": null
   }
 }
 ```
 
 `GET /api/auth/me` and every user endpoint return the same `user` object (the `User` model).
+
+- **`patientCode` — Healthly ID** of a patient (`null` for other roles). The patient tells it at a partner laboratory, and
+  the lab staff use it to find them and upload their report. **The app should show it prominently, together with a QR
+  code that encodes exactly this text** (e.g. `HL-7K3P9Q`): lab QR scanners type it into the lab's web page like a
+  keyboard. The code is permanent; treat it like a membership number (do not post it publicly).
+- Roles are `Patient`, `Doctor`, `Admin` and **`LabStaff`** (laboratory staff — they use the website, not the app).
+  `laboratoryId` / `laboratoryName` are set only for `LabStaff`.
+- Documents may now be uploaded **by a laboratory** for the patient; they appear in the patient's documents like any
+  other. `GET /api/documents/{id}/history` shows who uploaded the document (and from which laboratory), who ran the
+  AI analysis and who confirmed the values — good to show as "Added by Healthly Partner Lab — Istanbul".
 
 ### Refresh — `POST /api/auth/refresh`
 
