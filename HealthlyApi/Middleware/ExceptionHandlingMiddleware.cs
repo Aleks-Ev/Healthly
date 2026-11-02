@@ -1,3 +1,4 @@
+using HealthlyApi.Services.Ai;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HealthlyApi.Middleware;
@@ -69,6 +70,8 @@ public class ExceptionHandlingMiddleware
     private (int Status, string Detail) Describe(Exception exception) => exception switch
     {
         BadHttpRequestException badRequest => (badRequest.StatusCode, badRequest.Message),
+        // ИИ-анализ: 422 — в документе нет текста, 503 — все ИИ-провайдеры недоступны (см. Services/Ai/AiExceptions.cs)
+        AiAnalysisException aiAnalysis => (aiAnalysis.StatusCode, aiAnalysis.Message),
         _ when _environment.IsDevelopment() => (StatusCodes.Status500InternalServerError, $"{exception.GetType().Name}: {exception.Message}"),
         _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred. Please try again later."),
     };

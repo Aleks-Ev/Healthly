@@ -245,7 +245,7 @@ The patient's own id is `user.id` from login / `/api/auth/me`. A patient gets `4
 | `GET` | `/api/documents/{id}` | Document details + its test results |
 | `GET` | `/api/documents/{id}/file` | Download the original file |
 | `DELETE` | `/api/documents/{id}` | Delete own document |
-| `POST` | `/api/documents/{id}/analyze` | AI analysis of a document (**mock for now**) |
+| `POST` | `/api/documents/{id}/analyze` | AI analysis of a PDF or photo (OCR → Gemini → Groq; mock without server keys) |
 | `POST` | `/api/documents/{id}/results` | Add a test result to a document |
 | `PUT` / `DELETE` | `/api/results/{id}` | Edit / delete a test result |
 
@@ -435,10 +435,21 @@ when the first test result is added, or by a doctor) / `Error` (set by a doctor)
 
 ### AI analysis — `POST /api/documents/{id}/analyze`
 
-No request body. Recognizes the lab report, extracts the indicators, compares them with the reference norms and returns
-a plain-language summary. **Currently a mock** (`isMock: true`): the values are generated (the same for the same document),
-the file itself is not read yet. The response format will stay the same when real OCR + LLM are connected, so you can
-build the screen now. Takes ~0.3 s now; a real model will take several seconds — show a loader.
+No request body. Reads the lab report, extracts the indicators, compares them with the reference norms and returns
+a plain-language summary. The server reads the text itself (the PDF text layer, or OCR for photos and scans), masks
+personal data and sends only that text to an AI model:
+Google Gemini, with Groq as an automatic fallback. `model` shows which one answered (`"gemini:gemini-3.5-flash"`,
+`"groq:openai/gpt-oss-120b"`) and `isMock` is `false`. A real analysis takes several seconds (up to ~1 min if the
+fallback kicks in), so show a loader.
+
+If the server has no AI keys configured, a mock answers instead (`isMock: true`, `model: "mock-ai-v1"`): the values are
+generated (the same for the same document). The response format is identical — the example below is from the mock.
+
+PDFs, **photos (JPG/PNG) and scanned PDFs** can be analyzed. Photo tips worth showing in the app: good light, the page
+flat and filling the frame, in focus. Reading a photo adds a few seconds.
+
+**`confidence` ≤ 0.4** means the value was hard to read (typically a misread digit, e.g. `"7а"` instead of `"7.1"`):
+highlight it and ask the user to check it against the paper report before saving it as a result.
 
 ```json
 {
@@ -461,12 +472,17 @@ build the screen now. Takes ~0.3 s now; a real model will take several seconds �
 }
 ```
 
-- `isAbnormal` is decided by the server against its reference norms (not by the AI); `null` = could not be determined.
+- `isAbnormal` is decided by the server against its reference norms (not by the AI); `null` = could not be determined
+  or the value looks misread (then `confidence` is ≤ 0.4 — ask the user to check it).
+- Values keep the lab's units; `referenceRange` is shown in the same units (the server converts g/dL ↔ g/L,
+  mg/dL ↔ mmol/L, /cumm ↔ 10^9/L itself). `testName` uses the catalog name when the indicator is in it.
 - `suggestedSpecialists` — doctors for the out-of-range indicators; empty when everything is normal.
 - `anonymizedText` — the text that was sent to the AI after personal data was masked; you don't need to show it.
 - **Always show `disclaimer`** next to the AI summary.
 - Nothing is saved. To keep the values, add them as results: `POST /api/documents/{id}/results` for each indicator.
-- Errors: `403` (someone else's document), `404` (no document, or its file is missing).
+- Errors: `403` (someone else's document), `404` (no document, or its file is missing),
+  `422` (nothing readable — blurry/dark photo or damaged file; show `detail`, it says what to do),
+  `503` (AI or text recognition unavailable — offer "Try again later").
 
 ### Test results
 

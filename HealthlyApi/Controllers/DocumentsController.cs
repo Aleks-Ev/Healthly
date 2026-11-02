@@ -181,18 +181,26 @@ public class DocumentsController : ControllerBase
     /// Each indicator is compared with the reference norms (<c>isAbnormal</c>, <c>category</c>, <c>doctorSpecialty</c>);
     /// <c>suggestedSpecialists</c> lists the doctors for the out-of-range ones.
     ///
-    /// <b>Currently a mock</b> (<c>isMock: true</c>, <c>model: "mock-ai-v1"</c>): the values are generated, not read from the file,
-    /// and stay the same for the same document. The response format will not change when real OCR and LLM are connected.
+    /// The text is read on the server (the PDF text layer, or OCR for photos and scans) and anonymized before it is sent to the AI model
+    /// (Google Gemini, with Groq as an automatic fallback); <c>model</c> shows which one answered, e.g. <c>"gemini:gemini-3.5-flash"</c>.
+    /// The AI only extracts the values; whether a value is normal is decided by the reference norms.
+    /// A low <c>confidence</c> (≤ 0.4) means the value was hard to read in the photo: ask the user to check it against the original.
+    /// When no AI keys are configured on the server, a mock is used (<c>isMock: true</c>, <c>model: "mock-ai-v1"</c>):
+    /// the values are generated, not read from the file. The response format is the same in both cases.
     /// Nothing is saved: results are added to the document with <c>POST /api/documents/{id}/results</c>.
     /// Allowed for the owner, Doctor and Admin.
     /// </remarks>
     /// <response code="200">The analysis.</response>
     /// <response code="403">A patient tried to analyze another user's document.</response>
     /// <response code="404">Document not found, or its file is missing from storage.</response>
+    /// <response code="422">No text could be read from the document: a blurry or dark photo, a damaged file. The detail says what to do.</response>
+    /// <response code="503">All AI providers or the text recognition are unavailable; try again later.</response>
     [HttpPost("{id:int}/analyze")]
     [ProducesResponseType<DocumentAnalysisResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<DocumentAnalysisResponse>> Analyze(int id, CancellationToken cancellationToken)
     {
         var document = await _context.MedicalDocuments

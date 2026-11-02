@@ -5,9 +5,11 @@ namespace HealthlyApi.Services;
 // Маскирует персональные данные (PII) в сыром тексте документа перед отправкой во внешний ИИ (LLM):
 // модели нужны показатели анализов, а не имя, телефон и e-mail пациента.
 //
-// Порядок важен: сначала e-mail (в нём бывают цифры, похожие на телефон), затем телефоны, даты и имена.
+// Порядок важен: сначала e-mail (в нём бывают цифры, похожие на телефон), затем идентификаторы, телефоны, даты и имена.
 //   e-mail                      → [REDACTED_EMAIL]
-//   телефоны +90 / 0 5xx (Турция), +7 / 8 (Россия)   → [REDACTED_PHONE]
+//   идентификаторы после метки: "Patient ID: PAC001", "Hasta No: 123", "TC Kimlik No: …", "Report ID : RE1"
+//     (и их искажения OCR: "Patient 10", "Test 1d"); 11-значный номер TC Kimlik без метки → [REDACTED_ID]
+//   телефоны +90 / 0 5xx (Турция), +7 / 8 (Россия), любой международный "+код страны"   → [REDACTED_PHONE]
 //   даты 18.04.1992, 18/04/92, 1992-04-18           → [REDACTED_DATE]
 //   имена                       → [REDACTED_NAME]:
 //     1) значение после метки: "Patient: Elif Kaya", "ФИО: Иванов Иван", "Hasta Adı: Ayşe Yılmaz";
@@ -23,6 +25,7 @@ public static partial class PiiAnonymizer
     public const string PhoneMask = "[REDACTED_PHONE]";
     public const string DateMask = "[REDACTED_DATE]";
     public const string NameMask = "[REDACTED_NAME]";
+    public const string IdMask = "[REDACTED_ID]";
 
     // Ограничение времени на одно выражение — защита от зависания на очень длинном/«злом» тексте (ReDoS)
     private const int TimeoutMs = 1000;
@@ -35,7 +38,10 @@ public static partial class PiiAnonymizer
         }
 
         var result = EmailRegex().Replace(text, EmailMask);
+        result = LabeledIdRegex().Replace(result, match => match.Groups["label"].Value + IdMask);
         result = PhoneRegex().Replace(result, PhoneMask);
+        result = InternationalPhoneRegex().Replace(result, PhoneMask);
+        result = TurkishNationalIdRegex().Replace(result, IdMask);
         result = DateRegex().Replace(result, DateMask);
         result = IsoDateRegex().Replace(result, DateMask);
 
@@ -45,6 +51,8 @@ public static partial class PiiAnonymizer
             result = Regex.Replace(result, $@"(?<!\p{{L}}){Regex.Escape(name)}(?!\p{{L}})", NameMask,
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(TimeoutMs));
         }
+
+        result = MaskOcrVariantsOfKnownNames(result, knownNames);
 
         result = LabeledNameRegex().Replace(result, match => match.Groups["label"].Value + NameMask);
         result = TitledNameRegex().Replace(result, match => match.Groups["title"].Value + NameMask);
@@ -63,6 +71,100 @@ public static partial class PiiAnonymizer
             .Where(part => part.Length >= 3)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(part => part.Length);
+
+    // Текст с фото (OCR) содержит ошибки: «E1if Kaya», «Ayse Yilmaz» вместо «Ayşe Yılmaz», «Kaγa». Точное сравнение
+    // такое имя пропустит, поэтому каждое слово сравниваем с частями известных имён «с допуском»:
+    //   - похожие для OCR символы приводим к одному (1/l/i/ı/| → l, 0 → o, 5 → s), убираем диакритику (ş → s);
+    //   - разрешаем 1 ошибку (замена/вставка/удаление буквы) для частей от 4 букв и 2 — от 8 букв.
+    // Короткие части (Ali, Can) сравниваются только точно — иначе маскировались бы обычные слова.
+    private const int FuzzyMinLength = 4;
+
+    private static string MaskOcrVariantsOfKnownNames(string text, IEnumerable<string>? knownNames)
+    {
+        var parts = ExpandKnownNames(knownNames)
+            .Where(part => !part.Contains(' ') && part.Length >= FuzzyMinLength)
+            .Select(NormalizeForOcr)
+            .Distinct()
+            .ToList();
+        if (parts.Count == 0)
+        {
+            return text;
+        }
+
+        return WordRegex().Replace(text, match =>
+        {
+            var word = match.Value;
+            if (!word.Any(char.IsLetter) || word.Length < FuzzyMinLength - 1)
+            {
+                return word;
+            }
+            var normalized = NormalizeForOcr(word);
+            return parts.Any(part => Levenshtein(normalized, part, part.Length >= 8 ? 2 : 1)) ? NameMask : word;
+        });
+    }
+
+    private static string NormalizeForOcr(string word)
+    {
+        // Две буквы, которые OCR склеивает в одну и наоборот: «rn» ↔ «m», «vv» ↔ «w»
+        var lower = word.ToLowerInvariant().Replace("rn", "m").Replace("vv", "w");
+        var builder = new System.Text.StringBuilder(word.Length);
+        foreach (var c in lower.Normalize(System.Text.NormalizationForm.FormD))
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+            builder.Append(char.ToLowerInvariant(c) switch
+            {
+                '1' or 'i' or 'ı' or '|' or '!' => 'l',
+                '0' => 'o',
+                '5' => 's',
+                var other => other,
+            });
+        }
+        return builder.ToString();
+    }
+
+    // true — расстояние Левенштейна между словами не больше maxDistance
+    private static bool Levenshtein(string a, string b, int maxDistance)
+    {
+        if (Math.Abs(a.Length - b.Length) > maxDistance)
+        {
+            return false;
+        }
+        var previous = Enumerable.Range(0, b.Length + 1).ToArray();
+        var current = new int[b.Length + 1];
+        for (var i = 1; i <= a.Length; i++)
+        {
+            current[0] = i;
+            for (var j = 1; j <= b.Length; j++)
+            {
+                var cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                current[j] = Math.Min(Math.Min(current[j - 1] + 1, previous[j] + 1), previous[j - 1] + cost);
+            }
+            (previous, current) = (current, previous);
+        }
+        return previous[b.Length] <= maxDistance;
+    }
+
+    // Слово для нечёткого сравнения: буквы, цифры и похожие на буквы символы OCR (| и !)
+    [GeneratedRegex(@"[\p{L}\p{N}|!]+", RegexOptions.None, TimeoutMs)]
+    private static partial Regex WordRegex();
+
+    // Метка идентификатора + значение с хотя бы одной цифрой. "ID" бывает распознан OCR как "1D", "I0", "10", "I1D", "lD"
+    [GeneratedRegex(
+        @"(?<label>\b(?i:(?:Patient|Hasta|Report|Rapor|Sample|Numune|Specimen|Test|Lab|Barcode|Barkod|Protocol|Protokol|Accession|Пациент|Карта)[ \t]*(?:[Il1|]{1,2}[D0O]|No|Number|Numaras[ıi]|Kodu|№|#)\.?|MRN|T\.?C\.?[ \t]*(?:Kimlik[ \t]*)?No\.?|Kimlik[ \t]*No\.?|СНИЛС|Полис(?:[ \t]*ОМС)?)[ \t]*[:#№]?[ \t]*)" +
+        @"(?=[\p{L}\p{N}\-/]*\p{N})[\p{L}\p{N}][\p{L}\p{N}\-/]*",
+        RegexOptions.CultureInvariant, TimeoutMs)]
+    private static partial Regex LabeledIdRegex();
+
+    // Международный номер: "+" и код страны, всего от 8 до 15 цифр (E.164), разделители — пробелы, дефисы, скобки
+    [GeneratedRegex(@"(?<![\w+])\+[1-9](?:[\s\-()]*\d){7,14}(?!\d)", RegexOptions.None, TimeoutMs)]
+    private static partial Regex InternationalPhoneRegex();
+
+    // TC Kimlik No — 11 цифр, первая не 0; в анализах таких «голых» 11-значных чисел не бывает
+    [GeneratedRegex(@"(?<![\d.,])[1-9]\d{10}(?![\d.,])", RegexOptions.None, TimeoutMs)]
+    private static partial Regex TurkishNationalIdRegex();
 
     [GeneratedRegex(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", RegexOptions.None, TimeoutMs)]
     private static partial Regex EmailRegex();
