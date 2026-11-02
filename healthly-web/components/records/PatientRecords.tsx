@@ -11,6 +11,7 @@ import Button from '@/components/ui/Button';
 import Alert from '@/components/ui/Alert';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { AbnormalBadge, StatusBadge } from '@/components/ui/Badge';
+import CriticalBanner from './CriticalBanner';
 import HealthTrends from '@/components/records/HealthTrends';
 import { documentsApi, getErrorMessage, usersApi } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -85,8 +86,15 @@ export default function PatientRecords({ userId }: { userId: number }) {
     { label: 'Last upload', value: formatDate(report.lastUploadDate) },
   ];
 
+  // Критические значения среди последних измерений — красный баннер над всем остальным
+  const criticalItems = report.indicators
+    .filter((indicator) => indicator.isCritical)
+    .map((indicator) => ({ testName: indicator.testName, value: indicator.latestValue, unit: indicator.unit }));
+
   return (
     <div className="space-y-6">
+      <CriticalBanner items={criticalItems} />
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {stats.map((stat) => (
           <div key={stat.label} className="rounded-2xl bg-white border border-[#e1e7dc] p-4">
@@ -115,13 +123,16 @@ export default function PatientRecords({ userId }: { userId: number }) {
               </thead>
               <tbody>
                 {report.indicators.map((indicator) => (
-                  <tr key={indicator.testName} className="border-b border-[#e1e7dc] last:border-0">
+                  <tr
+                    key={indicator.testName}
+                    className={`border-b border-[#e1e7dc] last:border-0 ${indicator.isCritical ? 'bg-red-50 text-red-800' : ''}`}
+                  >
                     <td className="px-5 sm:px-6 py-3 font-medium">
                       <Link href={`/documents/${indicator.documentId}`} className="hover:text-[#72826c]">{indicator.testName}</Link>
                     </td>
                     <td className="px-3 py-3">{indicator.latestValue} <span className="text-[#6b756e]">{indicator.unit}</span></td>
                     <td className="px-3 py-3 text-[#6b756e]">{indicator.referenceRange || '—'}</td>
-                    <td className="px-3 py-3"><AbnormalBadge isAbnormal={indicator.isAbnormal} /></td>
+                    <td className="px-3 py-3"><AbnormalBadge isAbnormal={indicator.isAbnormal} isCritical={indicator.isCritical} /></td>
                     <td className="px-5 sm:px-6 py-3 text-right text-[#6b756e]">
                       {formatDate(indicator.measuredAt)}
                       {indicator.measurementsCount > 1 && <span className="block text-xs">{indicator.measurementsCount} measurements</span>}

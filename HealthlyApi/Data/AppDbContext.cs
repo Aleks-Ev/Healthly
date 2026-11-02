@@ -1,5 +1,8 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using HealthlyApi.Models;
+using HealthlyApi.Services.Ai;
 
 namespace HealthlyApi.Data;
 
@@ -12,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<TestResult> TestResults => Set<TestResult>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ReferenceMedicalValue> ReferenceMedicalValues => Set<ReferenceMedicalValue>();
+    public DbSet<DocumentAnalysis> DocumentAnalyses => Set<DocumentAnalysis>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -73,5 +77,28 @@ public class AppDbContext : DbContext
             result.Property(r => r.Unit).HasMaxLength(30);
             result.Property(r => r.ReferenceRange).HasMaxLength(50);
         });
+
+        modelBuilder.Entity<DocumentAnalysis>(analysis =>
+        {
+            // Один анализ на документ; удалили документ — удалился и анализ
+            analysis.HasIndex(a => a.MedicalDocumentId).IsUnique();
+            analysis.HasOne(a => a.MedicalDocument)
+                .WithOne()
+                .HasForeignKey<DocumentAnalysis>(a => a.MedicalDocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+            analysis.Property(a => a.Model).HasMaxLength(100);
+            // Показатели от ИИ — одним jsonb-полем: это снимок ответа модели, отдельная таблица не нужна
+            analysis.Property(a => a.Indicators)
+                .HasColumnType("jsonb")
+                .HasConversion(
+                    indicators => JsonSerializer.Serialize(indicators, JsonOptions),
+                    json => JsonSerializer.Deserialize<List<AiExtractedIndicator>>(json, JsonOptions) ?? new List<AiExtractedIndicator>(),
+                    new ValueComparer<List<AiExtractedIndicator>>(
+                        (a, b) => a!.SequenceEqual(b!),
+                        list => list.Aggregate(0, (hash, item) => HashCode.Combine(hash, item.GetHashCode())),
+                        list => list.ToList()));
+        });
     }
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 }

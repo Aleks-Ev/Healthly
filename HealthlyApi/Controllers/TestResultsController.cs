@@ -5,6 +5,7 @@ using HealthlyApi.Data;
 using HealthlyApi.Dtos;
 using HealthlyApi.Models;
 using HealthlyApi.Services;
+using HealthlyApi.Services.Ai;
 
 namespace HealthlyApi.Controllers;
 
@@ -53,6 +54,7 @@ public class TestResultsController : ControllerBase
 
         var result = new TestResult { MedicalDocumentId = documentId };
         Apply(result, request);
+        await MarkCriticalAsync(result, document.UserId);
         _context.TestResults.Add(result);
 
         // Первые показатели внесены — документ считается обработанным
@@ -92,6 +94,7 @@ public class TestResultsController : ControllerBase
         }
 
         Apply(result, request);
+        await MarkCriticalAsync(result, result.MedicalDocument.UserId);
         await _context.SaveChangesAsync();
 
         return result.ToResponse();
@@ -123,6 +126,18 @@ public class TestResultsController : ControllerBase
         await _context.SaveChangesAsync();
 
         return NoContent();
+    }
+
+    // Критическое значение определяется по справочнику норм с учётом пола и возраста пациента — так же, как при
+    // ИИ-анализе (DocumentAnalysisService.Evaluate): врач вносит «Potassium 7.0» вручную — строка тоже станет красной
+    private async Task MarkCriticalAsync(TestResult result, int patientId)
+    {
+        var patient = await _context.Users.AsNoTracking().FirstAsync(u => u.Id == patientId);
+        var references = await _context.ReferenceMedicalValues.AsNoTracking().ToListAsync();
+        var evaluated = DocumentAnalysisService.Evaluate(
+            new AiExtractedIndicator(result.TestName, result.Value, result.Unit, result.ReferenceRange, 1.0),
+            references, patient.Gender, DocumentAnalysisService.GetAge(patient.DateOfBirth));
+        result.IsCritical = evaluated.IsCritical;
     }
 
     private Task<TestResult?> FindWithDocumentAsync(int id) =>

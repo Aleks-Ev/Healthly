@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import type { DocumentStatus, Role } from '@/types/api';
 
 type Tone = 'neutral' | 'green' | 'blue' | 'amber' | 'red' | 'purple';
@@ -28,6 +29,19 @@ export function StatusBadge({ status }: { status: DocumentStatus }) {
   return <Badge tone={STATUS_TONES[status]}>{status}</Badge>;
 }
 
-export function AbnormalBadge({ isAbnormal }: { isAbnormal: boolean }) {
+// Критическое значение (за критическим порогом справочника норм) — заливка ярко-красным, заметнее обычного отклонения
+export function CriticalBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-red-600 px-2.5 py-0.5 text-xs font-semibold text-white">
+      <AlertTriangle className="w-3 h-3" aria-hidden="true" />
+      Critical
+    </span>
+  );
+}
+
+export function AbnormalBadge({ isAbnormal, isCritical = false }: { isAbnormal: boolean; isCritical?: boolean }) {
+  if (isCritical) {
+    return <CriticalBadge />;
+  }
   return isAbnormal ? <Badge tone="red">Out of range</Badge> : <Badge tone="green">Normal</Badge>;
 }

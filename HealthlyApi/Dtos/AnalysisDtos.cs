@@ -1,6 +1,9 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace HealthlyApi.Dtos;
 
-// POST /api/documents/{id}/analyze — результат ИИ-анализа документа (пока не сохраняется в БД)
+// POST /api/documents/{id}/analyze, GET /api/documents/{id}/analysis — черновик ИИ-анализа (хранится в DocumentAnalyses).
+// Оценка «норма / отклонение / критично» пересчитывается при каждом чтении по текущему справочнику норм
 public record DocumentAnalysisResponse(
     int DocumentId,
     List<AnalyzedIndicatorResponse> Indicators,
@@ -13,7 +16,31 @@ public record DocumentAnalysisResponse(
     string Model,                      // "mock-ai-v1" — заглушка
     bool IsMock,
     DateTime AnalyzedAt,
+    DateTime? ConfirmedAt,             // null — черновик; иначе показатели подтверждены и сохранены в TestResults
     string Disclaimer);
+
+// POST /api/documents/{id}/analysis/confirm — показатели, сверенные человеком с бланком (можно исправить и удалить лишние).
+// Заменяют все показатели документа; значения пересчитываются в единицы справочника норм
+public class ConfirmAnalysisRequest
+{
+    [Required, MinLength(1, ErrorMessage = "Confirm at least one indicator")]
+    public List<ConfirmedIndicatorRequest> Indicators { get; set; } = [];
+}
+
+public class ConfirmedIndicatorRequest
+{
+    [Required, MaxLength(100)]
+    public string TestName { get; set; } = string.Empty;
+
+    [Required, MaxLength(50)]
+    public string Value { get; set; } = string.Empty;
+
+    [MaxLength(30)]
+    public string? Unit { get; set; }
+
+    [MaxLength(50)]
+    public string? ReferenceRange { get; set; }
+}
 
 public record AnalyzedIndicatorResponse(
     string TestName,

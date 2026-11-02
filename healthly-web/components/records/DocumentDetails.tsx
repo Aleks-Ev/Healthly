@@ -14,6 +14,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { AbnormalBadge, StatusBadge } from '@/components/ui/Badge';
 import TestResultFormModal from './TestResultFormModal';
 import DocumentAnalysisCard from './DocumentAnalysisCard';
+import CriticalBanner from './CriticalBanner';
 import { documentsApi, getErrorMessage, resultsApi } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDate, formatFileSize } from '@/lib/format';
@@ -112,7 +113,13 @@ export default function DocumentDetails() {
         {actionError && <Alert className="mt-4">{actionError}</Alert>}
       </Card>
 
-      <DocumentAnalysisCard documentId={document.id} />
+      <CriticalBanner items={document.results.filter((result) => result.isCritical)} />
+
+      <DocumentAnalysisCard
+        documentId={document.id}
+        existingResultsCount={document.results.length}
+        onConfirmed={setDocument}
+      />
 
       <Card
         title="Test results"
@@ -124,7 +131,7 @@ export default function DocumentDetails() {
         }
       >
         {document.results.length === 0 ? (
-          <EmptyState>No results yet. Add the values from this document.</EmptyState>
+          <EmptyState>No results yet. Analyze the document with AI and confirm the values, or add them manually.</EmptyState>
         ) : (
           <div className="overflow-x-auto -mx-5 sm:-mx-6">
             <table className="w-full min-w-[560px] text-sm">
@@ -139,11 +146,11 @@ export default function DocumentDetails() {
               </thead>
               <tbody>
                 {document.results.map((result) => (
-                  <tr key={result.id} className="border-b border-[#e1e7dc] last:border-0">
+                  <tr key={result.id} className={`border-b border-[#e1e7dc] last:border-0 ${result.isCritical ? 'bg-red-50 text-red-800' : ''}`}>
                     <td className="px-5 sm:px-6 py-3 font-medium">{result.testName}</td>
                     <td className="px-3 py-3">{result.value} <span className="text-[#6b756e]">{result.unit}</span></td>
                     <td className="px-3 py-3 text-[#6b756e]">{result.referenceRange || '—'}</td>
-                    <td className="px-3 py-3"><AbnormalBadge isAbnormal={result.isAbnormal} /></td>
+                    <td className="px-3 py-3"><AbnormalBadge isAbnormal={result.isAbnormal} isCritical={result.isCritical} /></td>
                     <td className="px-5 sm:px-6 py-3">
                       <div className="flex justify-end gap-1">
                         <Button variant="ghost" size="sm" aria-label="Edit" onClick={() => setEditingResult(result)}>

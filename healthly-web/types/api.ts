@@ -105,6 +105,8 @@ export interface TestResult {
   unit: string;
   referenceRange: string;
   isAbnormal: boolean;
+  // за критическим порогом справочника норм — срочно к врачу (красная подсветка)
+  isCritical: boolean;
 }
 
 export interface MedicalDocumentDetails extends Omit<MedicalDocument, 'resultsCount' | 'abnormalCount'> {
@@ -138,7 +140,21 @@ export interface DocumentAnalysis {
   model: string;
   isMock: boolean;
   analyzedAt: string;
+  // null — черновик; иначе показатели подтверждены человеком и сохранены в историю
+  confirmedAt: string | null;
   disclaimer: string;
+}
+
+// POST /api/documents/{id}/analysis/confirm — показатели, сверенные с бланком; заменяют все показатели документа
+export interface ConfirmedIndicator {
+  testName: string;
+  value: string;
+  unit?: string | null;
+  referenceRange?: string | null;
+}
+
+export interface ConfirmAnalysisRequest {
+  indicators: ConfirmedIndicator[];
 }
 
 // Значение ниже этой уверенности распознавания нужно сверить с бланком (DocumentAnalysisService.UncertainConfidence)
@@ -159,6 +175,7 @@ export interface ReportIndicator {
   unit: string;
   referenceRange: string;
   isAbnormal: boolean;
+  isCritical: boolean;
   measuredAt: string;
   measurementsCount: number;
   documentId: number;
@@ -179,6 +196,7 @@ export interface TrendPoint {
   measuredAt: string;
   value: number;
   isAbnormal: boolean;
+  isCritical: boolean;
 }
 
 export interface IndicatorTrend {

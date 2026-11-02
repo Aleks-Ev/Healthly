@@ -4,6 +4,7 @@
 import type {
   AuthResponse,
   ChangePasswordRequest,
+  ConfirmAnalysisRequest,
   CreateUserRequest,
   DocumentAnalysis,
   DocumentStatus,
@@ -247,8 +248,24 @@ export const documentsApi = {
   updateStatus: (id: number, status: DocumentStatus) =>
     request<MedicalDocumentDetails>(`/documents/${id}/status`, { method: 'PUT', json: { status } }),
   remove: (id: number) => request<void>(`/documents/${id}`, { method: 'DELETE' }),
-  // ИИ-анализ: 10–30 секунд (OCR + модель); 422 — документ не читается, 503 — ИИ временно недоступен
-  analyze: (id: number) => request<DocumentAnalysis>(`/documents/${id}/analyze`, { method: 'POST' }),
+  // ИИ-анализ: 10–30 секунд (OCR + модель); 422 — документ не читается, 503 — ИИ временно недоступен.
+  // Сохранённый черновик возвращается сразу, без нового вызова ИИ; force — проанализировать заново
+  analyze: (id: number, force = false) =>
+    request<DocumentAnalysis>(`/documents/${id}/analyze${force ? '?force=true' : ''}`, { method: 'POST' }),
+  // null — документ ещё не анализировали
+  getAnalysis: async (id: number) => {
+    try {
+      return await request<DocumentAnalysis>(`/documents/${id}/analysis`);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        return null;
+      }
+      throw err;
+    }
+  },
+  // Подтверждённые показатели заменяют все показатели документа и попадают в историю и графики
+  confirmAnalysis: (id: number, data: ConfirmAnalysisRequest) =>
+    request<MedicalDocumentDetails>(`/documents/${id}/analysis/confirm`, { method: 'POST', json: data }),
   // Файл нужно скачивать с заголовком Authorization, поэтому обычная ссылка не подходит
   download: async (id: number, fileName: string) => {
     const response = await send(`/documents/${id}/file`);

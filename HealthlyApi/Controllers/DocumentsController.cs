@@ -178,19 +178,23 @@ public class DocumentsController : ControllerBase
     /// <summary>Analyze a document with AI</summary>
     /// <remarks>
     /// Recognizes the lab report, masks personal data, extracts the indicators and writes a plain-language summary.
-    /// Each indicator is compared with the reference norms (<c>isAbnormal</c>, <c>category</c>, <c>doctorSpecialty</c>);
-    /// <c>suggestedSpecialists</c> lists the doctors for the out-of-range ones.
+    /// Each indicator is compared with the reference norms for the patient's sex and age (<c>isAbnormal</c>, <c>isCritical</c>,
+    /// <c>category</c>, <c>doctorSpecialty</c>); <c>suggestedSpecialists</c> lists the doctors for the out-of-range ones.
     ///
     /// The text is read on the server (the PDF text layer, or OCR for photos and scans) and anonymized before it is sent to the AI model
     /// (Google Gemini, with Groq as an automatic fallback); <c>model</c> shows which one answered, e.g. <c>"gemini:gemini-3.5-flash"</c>.
     /// The AI only extracts the values; whether a value is normal is decided by the reference norms.
     /// A low <c>confidence</c> (≤ 0.4) means the value was hard to read in the photo: ask the user to check it against the original.
-    /// When no AI keys are configured on the server, a mock is used (<c>isMock: true</c>, <c>model: "mock-ai-v1"</c>):
-    /// the values are generated, not read from the file. The response format is the same in both cases.
-    /// Nothing is saved: results are added to the document with <c>POST /api/documents/{id}/results</c>.
-    /// Allowed for the owner, Doctor and Admin.
+    /// When no AI keys are configured on the server, a mock is used (<c>isMock: true</c>, <c>model: "mock-ai-v1"</c>).
+    ///
+    /// The result is saved as a **draft** (<c>confirmedAt: null</c>). Calling this again returns the saved draft without a new
+    /// AI request; <c>?force=true</c> analyzes the file again and resets the confirmation. The values reach the history and charts
+    /// only after <c>POST /api/documents/{id}/analysis/confirm</c>. Allowed for the owner, Doctor and Admin.
     /// </remarks>
-    /// <response code="200">The analysis.</response>
+    /// <param name="id">Document id.</param>
+    /// <param name="force">Analyze the file again even if a saved analysis exists (uses the AI quota).</param>
+    /// <param name="cancellationToken">Request cancellation.</param>
+    /// <response code="200">The analysis (saved draft or new).</response>
     /// <response code="403">A patient tried to analyze another user's document.</response>
     /// <response code="404">Document not found, or its file is missing from storage.</response>
     /// <response code="422">No text could be read from the document: a blurry or dark photo, a damaged file. The detail says what to do.</response>
@@ -201,7 +205,89 @@ public class DocumentsController : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
-    public async Task<ActionResult<DocumentAnalysisResponse>> Analyze(int id, CancellationToken cancellationToken)
+    public async Task<ActionResult<DocumentAnalysisResponse>> Analyze(int id, CancellationToken cancellationToken, [FromQuery] bool force = false)
+    {
+        var (document, error) = await FindAccessibleDocumentAsync(id, cancellationToken);
+        if (document == null)
+        {
+            return error!;
+        }
+
+        var result = await _analysis.AnalyzeAsync(document, document.User!, force, cancellationToken);
+
+        if (result == null)
+        {
+            return Problem(detail: "File is missing from storage", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return result;
+    }
+
+    /// <summary>Get the saved AI analysis of a document</summary>
+    /// <remarks>
+    /// The draft or confirmed analysis created by <c>POST /api/documents/{id}/analyze</c>. Normal / out of range / critical is
+    /// evaluated again on every request with the current reference norms. Allowed for the owner, Doctor and Admin.
+    /// </remarks>
+    /// <response code="200">The saved analysis.</response>
+    /// <response code="403">A patient requested another user's document.</response>
+    /// <response code="404">Document not found, or it has not been analyzed yet.</response>
+    [HttpGet("{id:int}/analysis")]
+    [ProducesResponseType<DocumentAnalysisResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DocumentAnalysisResponse>> GetAnalysis(int id, CancellationToken cancellationToken)
+    {
+        var (document, error) = await FindAccessibleDocumentAsync(id, cancellationToken);
+        if (document == null)
+        {
+            return error!;
+        }
+
+        var result = await _analysis.GetAsync(document, document.User!, cancellationToken);
+        return result == null
+            ? Problem(detail: "This document has not been analyzed yet", statusCode: StatusCodes.Status404NotFound)
+            : result;
+    }
+
+    /// <summary>Confirm the AI analysis and save the indicators</summary>
+    /// <remarks>
+    /// Send the indicators after checking them against the original report (fix misread values, remove wrong rows).
+    /// They **replace all test results of the document**: values are converted to the reference units (e.g. hemoglobin
+    /// 12 g/dL → 120 g/L) so the history and charts use one unit, then <c>isAbnormal</c> / <c>isCritical</c> are set by the norms.
+    /// The document becomes <c>Completed</c> and the analysis gets <c>confirmedAt</c>. Allowed for the owner, Doctor and Admin.
+    /// </remarks>
+    /// <response code="200">The document with its saved test results.</response>
+    /// <response code="400">Validation failed; see <c>errors</c>.</response>
+    /// <response code="403">A patient tried to confirm another user's document.</response>
+    /// <response code="404">Document not found, or it has not been analyzed yet.</response>
+    [HttpPost("{id:int}/analysis/confirm")]
+    [ProducesResponseType<DocumentDetailsResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DocumentDetailsResponse>> ConfirmAnalysis(int id, ConfirmAnalysisRequest request, CancellationToken cancellationToken)
+    {
+        var (document, error) = await FindAccessibleDocumentAsync(id, cancellationToken);
+        if (document == null)
+        {
+            return error!;
+        }
+
+        var saved = await _analysis.ConfirmAsync(document, document.User!, request, User.GetUserId()!.Value, cancellationToken);
+        if (saved == null)
+        {
+            return Problem(detail: "This document has not been analyzed yet", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var updated = await _context.MedicalDocuments
+            .AsNoTracking()
+            .Include(d => d.TestResults)
+            .FirstAsync(d => d.Id == id, cancellationToken);
+        return updated.ToDetailsResponse();
+    }
+
+    // Документ с владельцем, если он есть и текущий пользователь имеет к нему доступ; иначе — ответ с ошибкой
+    private async Task<(MedicalDocument? Document, ActionResult? Error)> FindAccessibleDocumentAsync(int id, CancellationToken cancellationToken)
     {
         var document = await _context.MedicalDocuments
             .AsNoTracking()
@@ -210,22 +296,10 @@ public class DocumentsController : ControllerBase
 
         if (document?.User == null)
         {
-            return DocumentNotFound();
+            return (null, DocumentNotFound());
         }
 
-        if (!User.CanAccessUser(document.UserId))
-        {
-            return Forbid();
-        }
-
-        var result = await _analysis.AnalyzeAsync(document, document.User, cancellationToken);
-
-        if (result == null)
-        {
-            return Problem(detail: "File is missing from storage", statusCode: StatusCodes.Status404NotFound);
-        }
-
-        return result;
+        return User.CanAccessUser(document.UserId) ? (document, null) : (null, Forbid());
     }
 
     /// <summary>Change a document's processing status (Doctor, Admin)</summary>

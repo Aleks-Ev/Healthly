@@ -67,11 +67,13 @@ public class ReportsController : ControllerBase
                     latest.Result.Unit,
                     latest.Result.ReferenceRange,
                     latest.Result.IsAbnormal,
+                    latest.Result.IsCritical,
                     latest.Document.UploadDate,
                     group.Count(),
                     latest.Document.Id);
             })
-            .OrderByDescending(i => i.IsAbnormal)
+            .OrderByDescending(i => i.IsCritical)
+            .ThenByDescending(i => i.IsAbnormal)
             .ThenBy(i => i.TestName)
             .ToList();
 
@@ -112,7 +114,7 @@ public class ReportsController : ControllerBase
         var measurements = await _context.TestResults
             .AsNoTracking()
             .Where(r => r.MedicalDocument!.UserId == userId)
-            .Select(r => new { r.TestName, r.Value, r.Unit, r.ReferenceRange, r.IsAbnormal, r.MedicalDocumentId, r.MedicalDocument!.UploadDate, r.Id })
+            .Select(r => new { r.TestName, r.Value, r.Unit, r.ReferenceRange, r.IsAbnormal, r.IsCritical, r.MedicalDocumentId, r.MedicalDocument!.UploadDate, r.Id })
             .ToListAsync();
 
         // Нечисловые значения ("positive", "not detected") на графике не показать — пропускаем их
@@ -132,7 +134,7 @@ public class ReportsController : ControllerBase
                     latest.ReferenceRange,
                     min,
                     max,
-                    points.Select(p => new TrendPoint(p.Measurement.MedicalDocumentId, p.Measurement.UploadDate, p.Number, p.Measurement.IsAbnormal)).ToList());
+                    points.Select(p => new TrendPoint(p.Measurement.MedicalDocumentId, p.Measurement.UploadDate, p.Number, p.Measurement.IsAbnormal, p.Measurement.IsCritical)).ToList());
             })
             .OrderByDescending(t => t.Points.Count)
             .ThenBy(t => t.TestName)

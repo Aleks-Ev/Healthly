@@ -40,7 +40,8 @@ public record TestResultResponse(
     string Value,
     string Unit,
     string ReferenceRange,
-    bool IsAbnormal);
+    bool IsAbnormal,
+    bool IsCritical);   // за критическим порогом справочника норм — срочно к врачу
 
 // POST /api/documents/{id}/results и PUT /api/results/{id}
 public class TestResultRequest
@@ -80,5 +81,6 @@ public static class DocumentMappings
         result.Value,
         result.Unit,
         result.ReferenceRange,
-        result.IsAbnormal);
+        result.IsAbnormal,
+        result.IsCritical);
 }

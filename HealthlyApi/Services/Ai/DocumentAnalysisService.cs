@@ -7,11 +7,13 @@ using HealthlyApi.Models;
 
 namespace HealthlyApi.Services.Ai;
 
-// Оркестратор анализа документа (POST /api/documents/{id}/analyze):
-// 1. открывает файл документа и загружает справочник норм;
-// 2. передаёт всё в IAiDocumentProcessor (сейчас заглушка, позже — реальный OCR + LLM);
-// 3. сам, без ИИ, сравнивает найденные значения с нормами из БД: отклонение, категория, к какому врачу обратиться.
-// Результат пока не сохраняется — только возвращается клиенту.
+// Оркестратор анализа документа — «ИИ предлагает, человек подтверждает»:
+//   AnalyzeAsync  (POST /analyze)            — файл → IAiDocumentProcessor → черновик в DocumentAnalyses.
+//                                              Есть черновик и не force — отдаём его без нового вызова ИИ (лимиты!);
+//   GetAsync      (GET /analysis)            — сохранённый черновик;
+//   ConfirmAsync  (POST /analysis/confirm)   — показатели, сверенные человеком, → TestResults (история и графики).
+// «В норме / отклонение / критично» решает код (Evaluate) по справочнику норм, а не ИИ; оценка пересчитывается при
+// каждом чтении, поэтому правка нормы врачами сразу видна и в черновиках.
 public partial class DocumentAnalysisService
 {
     public const string Disclaimer =
@@ -28,16 +30,21 @@ public partial class DocumentAnalysisService
         _processor = processor;
     }
 
-    // null — файла документа нет в хранилище
-    public async Task<DocumentAnalysisResponse?> AnalyzeAsync(MedicalDocument document, User patient, CancellationToken cancellationToken)
+    // null — файла документа нет в хранилище. force — проанализировать заново (новый вызов ИИ, подтверждение снимается)
+    public async Task<DocumentAnalysisResponse?> AnalyzeAsync(MedicalDocument document, User patient, bool force, CancellationToken cancellationToken)
     {
+        var references = await LoadReferencesAsync(cancellationToken);
+        var stored = await _context.DocumentAnalyses.FirstOrDefaultAsync(a => a.MedicalDocumentId == document.Id, cancellationToken);
+        if (stored != null && !force)
+        {
+            return ToResponse(stored, references, patient);
+        }
+
         await using var content = _storage.OpenRead(document.FilePath);
         if (content == null)
         {
             return null;
         }
-
-        var references = await _context.ReferenceMedicalValues.AsNoTracking().ToListAsync(cancellationToken);
 
         var input = new AiDocumentInput(
             document.Id,
@@ -49,9 +56,114 @@ public partial class DocumentAnalysisService
 
         var analysis = await _processor.AnalyzeAsync(input, cancellationToken);
 
+        if (stored == null)
+        {
+            stored = new DocumentAnalysis { MedicalDocumentId = document.Id };
+            _context.DocumentAnalyses.Add(stored);
+        }
+        stored.Indicators = analysis.Indicators.ToList();
+        stored.Summary = analysis.Summary;
+        stored.Recommendations = analysis.Recommendations.ToList();
+        stored.AnonymizedText = analysis.AnonymizedText;
+        stored.Model = analysis.Model;
+        stored.IsMock = analysis.IsMock;
+        stored.AnalyzedAt = DateTime.UtcNow;
+        stored.ConfirmedAt = null;
+        stored.ConfirmedByUserId = null;
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return ToResponse(stored, references, patient);
+    }
+
+    // null — документ ещё не анализировали
+    public async Task<DocumentAnalysisResponse?> GetAsync(MedicalDocument document, User patient, CancellationToken cancellationToken)
+    {
+        var stored = await _context.DocumentAnalyses.AsNoTracking().FirstOrDefaultAsync(a => a.MedicalDocumentId == document.Id, cancellationToken);
+        return stored == null ? null : ToResponse(stored, await LoadReferencesAsync(cancellationToken), patient);
+    }
+
+    // Показатели, которые человек сверил с бланком, заменяют все показатели документа (в одной транзакции).
+    // null — документ ещё не анализировали (подтверждать нечего)
+    public async Task<List<TestResult>?> ConfirmAsync(
+        MedicalDocument document, User patient, ConfirmAnalysisRequest request, int confirmedByUserId, CancellationToken cancellationToken)
+    {
+        var stored = await _context.DocumentAnalyses.FirstOrDefaultAsync(a => a.MedicalDocumentId == document.Id, cancellationToken);
+        if (stored == null)
+        {
+            return null;
+        }
+
+        var references = await LoadReferencesAsync(cancellationToken);
+        var results = request.Indicators
+            .Select(indicator => BuildConfirmedResult(indicator, references, patient.Gender, GetAge(patient.DateOfBirth)))
+            .ToList();
+
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        await _context.TestResults.Where(r => r.MedicalDocumentId == document.Id).ExecuteDeleteAsync(cancellationToken);
+        foreach (var result in results)
+        {
+            result.MedicalDocumentId = document.Id;
+        }
+        _context.TestResults.AddRange(results);
+
+        var tracked = await _context.MedicalDocuments.FirstAsync(d => d.Id == document.Id, cancellationToken);
+        tracked.Status = DocumentStatuses.Completed;
+        stored.ConfirmedAt = DateTime.UtcNow;
+        stored.ConfirmedByUserId = confirmedByUserId;
+
+        await _context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return results;
+    }
+
+    // Подтверждённый показатель → TestResult. Значение пересчитывается в единицы справочника (Hemoglobin 12 g/dL →
+    // 120 g/L), чтобы в истории и на графиках показатель всегда был в одних единицах, а не смесью g/dL и g/L.
+    // Человек уже сверил значение с бланком, поэтому подозрения на ошибку OCR здесь не применяются.
+    // public — для юнит-тестов (HealthlyApi.Tests)
+    public static TestResult BuildConfirmedResult(
+        ConfirmedIndicatorRequest indicator, IReadOnlyList<ReferenceMedicalValue> references, string? sex, int? age)
+    {
+        var name = indicator.TestName.Trim();
+        var value = indicator.Value.Trim();
+        var unit = indicator.Unit?.Trim() ?? string.Empty;
+        var printedRange = indicator.ReferenceRange?.Trim() ?? string.Empty;
+
+        var (metric, reference) = FindReference(references, name, sex, age);
+        if (reference != null
+            && ReferenceRangeEvaluator.TryParse(value, out var number)
+            && UnitConverter.GetFactor(reference.MetricName, unit, reference.Unit) is { } factor)
+        {
+            var converted = number * factor;
+            return new TestResult
+            {
+                TestName = reference.MetricName,
+                Value = converted.ToString("0.###", CultureInfo.InvariantCulture),
+                Unit = reference.Unit,
+                ReferenceRange = FormatRange(reference, 1),
+                IsAbnormal = converted < (double?)reference.MinNormal || converted > (double?)reference.MaxNormal,
+                IsCritical = converted < (double?)reference.CriticalLow || converted > (double?)reference.CriticalHigh,
+            };
+        }
+
+        // Нормы для пациента нет или единицу не пересчитать — сохраняем как в бланке, оценка по напечатанному диапазону
+        return new TestResult
+        {
+            TestName = metric?.MetricName ?? name,
+            Value = value,
+            Unit = unit,
+            ReferenceRange = printedRange,
+            IsAbnormal = ReferenceRangeEvaluator.IsAbnormal(value, printedRange) ?? false,
+        };
+    }
+
+    private Task<List<ReferenceMedicalValue>> LoadReferencesAsync(CancellationToken cancellationToken) =>
+        _context.ReferenceMedicalValues.AsNoTracking().ToListAsync(cancellationToken);
+
+    private static DocumentAnalysisResponse ToResponse(DocumentAnalysis stored, IReadOnlyList<ReferenceMedicalValue> references, User patient)
+    {
         var sex = patient.Gender;
         var age = GetAge(patient.DateOfBirth);
-        var indicators = analysis.Indicators.Select(indicator => Evaluate(indicator, references, sex, age)).ToList();
+        var indicators = stored.Indicators.Select(indicator => Evaluate(indicator, references, sex, age)).ToList();
         // Критическое значение — всегда отклонение (IsAbnormal = true), поэтому его врач тоже попадает в список
         var specialists = indicators
             .Where(i => i.IsAbnormal == true && !string.IsNullOrEmpty(i.DoctorSpecialty))
@@ -61,17 +173,18 @@ public partial class DocumentAnalysisService
             .ToList();
 
         return new DocumentAnalysisResponse(
-            document.Id,
+            stored.MedicalDocumentId,
             indicators,
             indicators.Count(i => i.IsAbnormal == true),
             indicators.Count(i => i.IsCritical),
-            analysis.Summary,
-            analysis.Recommendations.ToList(),
+            stored.Summary,
+            stored.Recommendations,
             specialists,
-            analysis.AnonymizedText,
-            analysis.Model,
-            analysis.IsMock,
-            DateTime.UtcNow,
+            stored.AnonymizedText,
+            stored.Model,
+            stored.IsMock,
+            stored.AnalyzedAt,
+            stored.ConfirmedAt,
             Disclaimer);
     }
 
@@ -222,7 +335,8 @@ public partial class DocumentAnalysisService
         };
     }
 
-    private static int? GetAge(DateOnly? dateOfBirth)
+    // Полных лет на сегодня; null — дата рождения не указана. public — используется и в TestResultsController
+    public static int? GetAge(DateOnly? dateOfBirth)
     {
         if (dateOfBirth is not { } birth)
         {

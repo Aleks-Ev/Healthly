@@ -245,7 +245,9 @@ The patient's own id is `user.id` from login / `/api/auth/me`. A patient gets `4
 | `GET` | `/api/documents/{id}` | Document details + its test results |
 | `GET` | `/api/documents/{id}/file` | Download the original file |
 | `DELETE` | `/api/documents/{id}` | Delete own document |
-| `POST` | `/api/documents/{id}/analyze` | AI analysis of a PDF or photo (OCR → Gemini → Groq; mock without server keys) |
+| `POST` | `/api/documents/{id}/analyze` | AI analysis of a PDF or photo (OCR → Gemini → Groq; mock without server keys); saved as a draft, `?force=true` re-analyzes |
+| `GET` | `/api/documents/{id}/analysis` | The saved analysis (draft or confirmed); `404` = not analyzed yet |
+| `POST` | `/api/documents/{id}/analysis/confirm` | Save the values checked against the report → test results, history, charts |
 | `POST` | `/api/documents/{id}/results` | Add a test result to a document |
 | `PUT` / `DELETE` | `/api/results/{id}` | Edit / delete a test result |
 
@@ -490,7 +492,23 @@ highlight it and ask the user to check it against the paper report before saving
 - `suggestedSpecialists` — doctors for the out-of-range indicators; empty when everything is normal.
 - `anonymizedText` — the text that was sent to the AI after personal data was masked; you don't need to show it.
 - **Always show `disclaimer`** next to the AI summary.
-- Nothing is saved. To keep the values, add them as results: `POST /api/documents/{id}/results` for each indicator.
+- **Draft → confirm.** The analysis is saved as a draft (`confirmedAt: null`). Calling `analyze` again returns the saved
+  draft instantly, without a new AI request; `POST /analyze?force=true` reads the report again (uses the AI quota) and
+  resets the confirmation. `GET /api/documents/{id}/analysis` loads it when the screen opens (`404` — not analyzed yet).
+- The values reach the history and charts only after the user checks them against the report and confirms:
+
+  ```json
+  POST /api/documents/{id}/analysis/confirm
+  { "indicators": [
+      { "testName": "Glucose", "value": "500", "unit": "mg/dL", "referenceRange": "70-100" },
+      { "testName": "Hemoglobin", "value": "13.1", "unit": "g/dL", "referenceRange": "12.0-15.5" } ] }
+  ```
+
+  Send the rows after the user's fixes, without the rows they removed. Do not allow confirming while a row with
+  `confidence` ≤ 0.4 is neither edited nor ticked as checked. The confirmed values **replace all test results of the
+  document** (warn the user if it already has some) and are **converted to the reference units** (glucose 500 mg/dL →
+  27.753 mmol/L, hemoglobin 13.1 g/dL → 131 g/L) so the charts never mix units. Response: the document with its
+  `results` (each with `isAbnormal` and `isCritical`); the document becomes `Completed`. `400` — empty list.
 - Errors: `403` (someone else's document), `404` (no document, or its file is missing),
   `422` (nothing readable — blurry/dark photo or damaged file; show `detail`, it says what to do),
   `503` (AI or text recognition unavailable — offer "Try again later").
@@ -506,6 +524,10 @@ highlight it and ask the user to check it against the paper report before saving
 `testName` (≤ 100) and `value` (≤ 50) are required. `isAbnormal: null` → the server decides from `referenceRange`;
 supported formats: `120-160`, `<5`, `<=5`, `>1.2`, `>=1.2` (a comma works as the decimal separator).
 Send `true`/`false` to set it manually (needed for non-numeric values like `"positive"`).
+
+Every test result in responses has **`isCritical`** (set by the server from the reference norms for the patient's sex and
+age, also for manually added results). The same flag is on `GET /api/users/{id}/report` → `indicators[]` (critical first)
+and on every point of `GET /api/users/{id}/trends`. Show critical values in red everywhere (see the AI analysis section).
 
 ---
 

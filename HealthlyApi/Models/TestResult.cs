@@ -13,4 +13,5 @@ public class TestResult
     public string Unit { get; set; } = string.Empty;           // Например, "г/л"
     public string ReferenceRange { get; set; } = string.Empty; // Например, "120-140"
     public bool IsAbnormal { get; set; } = false;              // Флаг отклонения от нормы
+    public bool IsCritical { get; set; } = false;              // За критическим порогом справочника норм — срочно к врачу
 }
