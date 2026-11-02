@@ -76,7 +76,7 @@ public class OcrTests
         Assert.Contains("135", russian);
 
         // Латинский бланк — один проход без русского: никаких «Мате» вместо «Name»
-        var latin = await ExtractAsync(TestImages.Png(["Name: Ana Betz", "MCH 28 27-31 pg", "Patient ID PAC001"]), "image/png", options);
+        var latin = await ExtractAsync(TestImages.Png(["Name: Anna Berg", "MCH 28 27-31 pg", "Patient ID PAC001"]), "image/png", options);
         Assert.DoesNotMatch(@"\p{IsCyrillic}", latin);
     }
 
