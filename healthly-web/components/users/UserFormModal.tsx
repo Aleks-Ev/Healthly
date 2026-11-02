@@ -3,15 +3,20 @@
 // Модальная форма пользователя.
 // - user = null  → создание (только Admin): все поля + роль + пароль
 // - user задан   → редактирование; роль и новый пароль видит только Admin (isAdmin)
+// Телефон, дата рождения и город — те же правила, что при регистрации (проверяет сервер). Для пациента дата рождения и пол
+// обязательны при создании: по ним выбираются нормы анализов. При редактировании пустой телефон/город — очистить.
 
-import { useState, type FormEvent } from 'react';
+import { useCallback, useState, type FormEvent } from 'react';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import Alert from '@/components/ui/Alert';
 import { SelectField, TextField, fieldError } from '@/components/ui/Field';
-import { ApiError, getErrorMessage, usersApi } from '@/lib/api';
+import { ApiError, getErrorMessage, laboratoriesApi, usersApi } from '@/lib/api';
+import { useApiData } from '@/lib/useApiData';
 import { toNumberOrNull } from '@/lib/format';
-import { ROLES, type Role, type User } from '@/types/api';
+import { ROLES, TESTING_CITIES, type Role, type User } from '@/types/api';
+
+const CITY_OPTIONS = [{ value: '', label: 'Not specified' }, ...TESTING_CITIES.map((city) => ({ value: city, label: city }))];
 
 export const GENDER_OPTIONS = [
   { value: '', label: 'Not specified' },
@@ -46,10 +51,23 @@ function UserForm({ user, isAdmin, onClose, onSaved }: UserFormModalProps) {
     height: user?.height?.toString() ?? '',
     weight: user?.weight?.toString() ?? '',
     gender: user?.gender ?? '',
+    phoneNumber: user?.phoneNumber ?? '',
+    dateOfBirth: user?.dateOfBirth ?? '',
+    city: user?.city ?? '',
+    laboratoryId: user?.laboratoryId?.toString() ?? '',
   });
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [isSaving, setIsSaving] = useState(false);
+
+  // Для пациента дата рождения и пол нужны для норм анализов; обязательны только при создании —
+  // у существующих аккаунтов их можно дописать позже
+  const isPatient = (isEdit ? user.role : form.role) === 'Patient';
+  const requireBirthData = !isEdit && isPatient;
+  // Сотруднику лаборатории админ выбирает лабораторию (список нужен только админу)
+  const isLabStaff = form.role === 'LabStaff';
+  const loadLaboratories = useCallback(() => (isAdmin ? laboratoriesApi.list() : Promise.resolve([])), [isAdmin]);
+  const { data: laboratories } = useApiData(loadLaboratories);
 
   const update = (field: keyof typeof form) => (event: { target: { value: string } }) =>
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
@@ -66,6 +84,10 @@ function UserForm({ user, isAdmin, onClose, onSaved }: UserFormModalProps) {
       height: toNumberOrNull(form.height),
       weight: toNumberOrNull(form.weight),
       gender: form.gender || null,
+      dateOfBirth: form.dateOfBirth || null,
+      // Пусто: при создании — не указано; при редактировании — очистить, если раньше было, иначе не менять
+      phoneNumber: form.phoneNumber.trim() || (user?.phoneNumber ? '' : null),
+      city: form.city || (user?.city ? '' : null),
     };
 
     try {
@@ -75,8 +97,14 @@ function UserForm({ user, isAdmin, onClose, onSaved }: UserFormModalProps) {
             // Не-админ не отправляет role/password совсем — иначе API вернёт 403
             role: isAdmin ? form.role : null,
             password: isAdmin && form.password ? form.password : null,
+            laboratoryId: isAdmin && isLabStaff ? toNumberOrNull(form.laboratoryId) : null,
           })
-        : await usersApi.create({ ...profile, role: form.role, password: form.password });
+        : await usersApi.create({
+            ...profile,
+            role: form.role,
+            password: form.password,
+            laboratoryId: isLabStaff ? toNumberOrNull(form.laboratoryId) : null,
+          });
       onSaved(saved);
       onClose();
     } catch (err) {
@@ -110,7 +138,7 @@ function UserForm({ user, isAdmin, onClose, onSaved }: UserFormModalProps) {
               id="user-role"
               value={form.role}
               onChange={update('role')}
-              options={ROLES.map((role) => ({ value: role, label: role }))}
+              options={ROLES.map((role) => ({ value: role, label: role === 'LabStaff' ? 'Lab staff' : role }))}
               error={fieldError(fieldErrors, 'role')}
             />
             <TextField
@@ -128,11 +156,68 @@ function UserForm({ user, isAdmin, onClose, onSaved }: UserFormModalProps) {
           </div>
         )}
 
+        {isAdmin && isLabStaff && (
+          <SelectField
+            label="Laboratory"
+            id="user-laboratory"
+            required
+            value={form.laboratoryId}
+            onChange={update('laboratoryId')}
+            options={[
+              { value: '', label: laboratories && laboratories.length === 0 ? 'No laboratories — add one first' : 'Select a laboratory' },
+              ...(laboratories ?? []).map((laboratory) => ({ value: laboratory.id.toString(), label: ` (${laboratory.city})` })),
+            ]}
+            error={fieldError(fieldErrors, 'laboratoryId')}
+          />
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <TextField label="Height (cm)" id="user-height" inputMode="decimal" value={form.height} onChange={update('height')} error={fieldError(fieldErrors, 'height')} />
           <TextField label="Weight (kg)" id="user-weight" inputMode="decimal" value={form.weight} onChange={update('weight')} error={fieldError(fieldErrors, 'weight')} />
-          <SelectField label="Gender" id="user-gender" value={form.gender} onChange={update('gender')} options={GENDER_OPTIONS} />
+          <SelectField
+            label="Gender"
+            id="user-gender"
+            required={requireBirthData}
+            value={form.gender}
+            onChange={update('gender')}
+            options={GENDER_OPTIONS}
+            error={fieldError(fieldErrors, 'gender')}
+          />
         </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <TextField
+            label="Date of birth"
+            id="user-dateOfBirth"
+            type="date"
+            required={requireBirthData}
+            value={form.dateOfBirth}
+            onChange={update('dateOfBirth')}
+            error={fieldError(fieldErrors, 'dateOfBirth')}
+          />
+          <TextField
+            label="Phone"
+            id="user-phoneNumber"
+            type="tel"
+            placeholder="+90 5XX XXX XX XX"
+            value={form.phoneNumber}
+            onChange={update('phoneNumber')}
+            error={fieldError(fieldErrors, 'phoneNumber')}
+          />
+          <SelectField
+            label="Testing city"
+            id="user-city"
+            value={form.city}
+            onChange={update('city')}
+            options={CITY_OPTIONS}
+            error={fieldError(fieldErrors, 'city')}
+          />
+        </div>
+        {isPatient && (
+          <p className="text-xs text-[#6b756e]">
+            Date of birth and gender are used to choose the right reference ranges for lab results.
+          </p>
+        )}
 
         {error && <Alert>{error}</Alert>}
       </form>

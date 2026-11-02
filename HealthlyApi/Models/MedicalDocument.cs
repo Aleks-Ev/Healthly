@@ -15,6 +15,12 @@ public class MedicalDocument
     public long FileSizeBytes { get; set; }
     public DateTime UploadDate { get; set; } = DateTime.UtcNow;
 
+    // Кто загрузил: сам пациент (UploadedByUserId = UserId) или сотрудник лаборатории (тогда задан и LaboratoryId).
+    // LabStaff видит только документы своей лаборатории
+    public int? UploadedByUserId { get; set; }
+    public int? LaboratoryId { get; set; }
+    public Laboratory? Laboratory { get; set; }
+
     // Статус обработки: см. DocumentStatuses
     public string Status { get; set; } = DocumentStatuses.Pending;
 

@@ -11,12 +11,14 @@ import { CartesianGrid, Line, LineChart, ReferenceArea, ResponsiveContainer, Too
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { formatDate } from '@/lib/format';
+import { CriticalBadge } from '@/components/ui/Badge';
 import type { IndicatorTrend } from '@/types/api';
 
 // Цвета графика (линия — синий из проверенной палитры, отклонение — статусный «critical»)
 const COLORS = {
   line: '#2a78d6',
   abnormal: '#d03b3b',
+  critical: '#7f1d1d', // критическое значение — темнее и крупнее обычного отклонения
   surface: '#ffffff',
   band: '#f1ece2',
   grid: '#ece7dd',
@@ -27,6 +29,7 @@ interface ChartPoint {
   time: number;
   value: number;
   isAbnormal: boolean;
+  isCritical: boolean;
 }
 
 // Демо-данные для пустого состояния (выдуманные, помечены как «Sample data»)
@@ -47,6 +50,7 @@ const DEMO_TREND: IndicatorTrend = {
     measuredAt: `${date}T00:00:00Z`,
     value: value as number,
     isAbnormal: isAbnormal as boolean,
+    isCritical: false,
   })),
 };
 
@@ -155,7 +159,7 @@ function TrendSummary({ trend }: { trend: IndicatorTrend }) {
         <div className="mt-1 flex items-baseline gap-2">
           <span className="text-3xl font-semibold tabular-nums text-[#242b26]">{formatValue(latest.value)}</span>
           <span className="text-sm text-[#6b756e]">{trend.unit}</span>
-          <StatusLabel isAbnormal={latest.isAbnormal} />
+          <StatusLabel isAbnormal={latest.isAbnormal} isCritical={latest.isCritical} />
         </div>
         <div className="mt-1 flex items-center gap-1 text-xs text-[#6b756e]">
           <DeltaIcon className="w-3.5 h-3.5" />
@@ -172,7 +176,10 @@ function TrendSummary({ trend }: { trend: IndicatorTrend }) {
   );
 }
 
-function StatusLabel({ isAbnormal }: { isAbnormal: boolean }) {
+function StatusLabel({ isAbnormal, isCritical }: { isAbnormal: boolean; isCritical: boolean }) {
+  if (isCritical) {
+    return <CriticalBadge />;
+  }
   return isAbnormal ? (
     <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700">
       <AlertTriangle className="w-3.5 h-3.5" />
@@ -186,11 +193,19 @@ function StatusLabel({ isAbnormal }: { isAbnormal: boolean }) {
   );
 }
 
+function pointColor(point?: ChartPoint) {
+  if (point?.isCritical) {
+    return COLORS.critical;
+  }
+  return point?.isAbnormal ? COLORS.abnormal : COLORS.line;
+}
+
 function TrendChart({ trend }: { trend: IndicatorTrend }) {
   const data: ChartPoint[] = trend.points.map((point) => ({
     time: new Date(point.measuredAt).getTime(),
     value: point.value,
     isAbnormal: point.isAbnormal,
+    isCritical: point.isCritical,
   }));
 
   // Ось Y охватывает и значения, и границы нормы; деления — «круглые» числа
@@ -268,8 +283,8 @@ function renderDot({ cx, cy, index, payload }: DotProps) {
       key={`dot-${index}`}
       cx={cx}
       cy={cy}
-      r={4.5}
-      fill={payload?.isAbnormal ? COLORS.abnormal : COLORS.line}
+      r={payload?.isCritical ? 6.5 : 4.5}
+      fill={pointColor(payload)}
       stroke={COLORS.surface}
       strokeWidth={2}
     />
@@ -277,7 +292,7 @@ function renderDot({ cx, cy, index, payload }: DotProps) {
 }
 
 function renderActiveDot({ cx, cy, payload }: DotProps) {
-  return <circle cx={cx} cy={cy} r={6.5} fill={payload?.isAbnormal ? COLORS.abnormal : COLORS.line} stroke={COLORS.surface} strokeWidth={2} />;
+  return <circle cx={cx} cy={cy} r={6.5} fill={pointColor(payload)} stroke={COLORS.surface} strokeWidth={2} />;
 }
 
 interface TrendTooltipProps {
@@ -299,7 +314,7 @@ function TrendTooltip({ unit, active, payload }: TrendTooltipProps) {
         {formatValue(point.value)} <span className="font-normal text-[#6b756e]">{unit}</span>
       </div>
       <div className="mt-1">
-        <StatusLabel isAbnormal={point.isAbnormal} />
+        <StatusLabel isAbnormal={point.isAbnormal} isCritical={point.isCritical} />
       </div>
     </div>
   );
@@ -324,7 +339,7 @@ function TrendTable({ trend }: { trend: IndicatorTrend }) {
               <td className="px-3 py-2.5 tabular-nums">
                 {formatValue(point.value)} <span className="text-[#6b756e]">{trend.unit}</span>
               </td>
-              <td className="px-5 sm:px-6 py-2.5"><StatusLabel isAbnormal={point.isAbnormal} /></td>
+              <td className="px-5 sm:px-6 py-2.5"><StatusLabel isAbnormal={point.isAbnormal} isCritical={point.isCritical} /></td>
             </tr>
           ))}
         </tbody>

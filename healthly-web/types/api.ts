@@ -1,7 +1,8 @@
 // Типы, повторяющие DTO бэкенда (HealthlyApi/Dtos). Меняются вместе с API.
 
-export type Role = 'Patient' | 'Doctor' | 'Admin';
-export const ROLES: Role[] = ['Patient', 'Doctor', 'Admin'];
+// LabStaff — сотрудник лаборатории-партнёра: загружает бланки пациентов и подтверждает анализ (рабочее место /lab)
+export type Role = 'Patient' | 'Doctor' | 'Admin' | 'LabStaff';
+export const ROLES: Role[] = ['Patient', 'Doctor', 'Admin', 'LabStaff'];
 
 export type DocumentStatus = 'Pending' | 'Processing' | 'Completed' | 'Error';
 export const DOCUMENT_STATUSES: DocumentStatus[] = ['Pending', 'Processing', 'Completed', 'Error'];
@@ -18,6 +19,11 @@ export interface User {
   dateOfBirth: string | null; // "YYYY-MM-DD"
   city: string;
   createdAt: string;
+  // Healthly ID пациента ("HL-7K3P9Q"): называет в лаборатории или показывает QR-код; null — не пациент
+  patientCode: string | null;
+  // Для LabStaff — лаборатория сотрудника
+  laboratoryId: number | null;
+  laboratoryName: string | null;
 }
 
 // Ответ входа, регистрации и POST /api/auth/refresh
@@ -71,7 +77,13 @@ export interface CreateUserRequest {
   height?: number | null;
   weight?: number | null;
   gender?: string | null;
+  // Для пациента обязательны dateOfBirth и gender: по ним выбираются нормы анализов
+  phoneNumber?: string | null; // +90 и 10 цифр
+  dateOfBirth?: string | null; // "YYYY-MM-DD", возраст 18–120
+  city?: string | null;
   role: Role;
+  // Обязательна для LabStaff
+  laboratoryId?: number | null;
 }
 
 // role и password отправляет только Admin; null — не менять
@@ -81,8 +93,14 @@ export interface UpdateUserRequest {
   height?: number | null;
   weight?: number | null;
   gender?: string | null;
+  // null — не менять; "" у телефона и города — очистить
+  phoneNumber?: string | null;
+  dateOfBirth?: string | null;
+  city?: string | null;
   role?: Role | null;
   password?: string | null;
+  // Только Admin; для LabStaff обязательна
+  laboratoryId?: number | null;
 }
 
 export interface MedicalDocument {
@@ -105,11 +123,62 @@ export interface TestResult {
   unit: string;
   referenceRange: string;
   isAbnormal: boolean;
+  // за критическим порогом справочника норм — срочно к врачу (красная подсветка)
+  isCritical: boolean;
 }
 
 export interface MedicalDocumentDetails extends Omit<MedicalDocument, 'resultsCount' | 'abnormalCount'> {
   results: TestResult[];
 }
+
+// POST /api/documents/{id}/analyze — ИИ-анализ документа (DocumentAnalysisResponse на бэкенде)
+export interface AnalyzedIndicator {
+  testName: string;
+  value: string;
+  unit: string;
+  referenceRange: string;
+  // null — не удалось определить или значение похоже на ошибку распознавания (тогда confidence ≤ 0.4)
+  isAbnormal: boolean | null;
+  // за критическим порогом: опасно, нужен врач срочно (всегда и isAbnormal = true)
+  isCritical: boolean;
+  category: string | null;
+  doctorSpecialty: string | null;
+  confidence: number;
+}
+
+export interface DocumentAnalysis {
+  documentId: number;
+  indicators: AnalyzedIndicator[];
+  abnormalCount: number;
+  criticalCount: number;
+  summary: string;
+  recommendations: string[];
+  suggestedSpecialists: string[];
+  anonymizedText: string;
+  model: string;
+  isMock: boolean;
+  analyzedAt: string;
+  // null — черновик; иначе показатели подтверждены человеком и сохранены в историю
+  confirmedAt: string | null;
+  // в профиле нет даты рождения/пола — нормы по возрасту/полу применены не ко всем показателям
+  patientDataNote: string | null;
+  disclaimer: string;
+}
+
+// POST /api/documents/{id}/analysis/confirm — показатели, сверенные с бланком; заменяют все показатели документа
+export interface ConfirmedIndicator {
+  testName: string;
+  value: string;
+  unit?: string | null;
+  referenceRange?: string | null;
+}
+
+export interface ConfirmAnalysisRequest {
+  indicators: ConfirmedIndicator[];
+}
+
+// Значение ниже этой уверенности распознавания нужно сверить с бланком (DocumentAnalysisService.UncertainConfidence)
+export const UNCERTAIN_CONFIDENCE = 0.4;
 
 // isAbnormal = null — сервер определит по referenceRange
 export interface TestResultRequest {
@@ -126,6 +195,7 @@ export interface ReportIndicator {
   unit: string;
   referenceRange: string;
   isAbnormal: boolean;
+  isCritical: boolean;
   measuredAt: string;
   measurementsCount: number;
   documentId: number;
@@ -146,6 +216,7 @@ export interface TrendPoint {
   measuredAt: string;
   value: number;
   isAbnormal: boolean;
+  isCritical: boolean;
 }
 
 export interface IndicatorTrend {
@@ -155,4 +226,55 @@ export interface IndicatorTrend {
   referenceMin: number | null;
   referenceMax: number | null;
   points: TrendPoint[];
+}
+
+// --- Лаборатории и рабочее место сотрудника (LabStaff) ---
+
+export interface Laboratory {
+  id: number;
+  name: string;
+  city: string;
+  address: string;
+  staffCount: number;
+}
+
+export interface LaboratoryRequest {
+  name: string;
+  city: string;
+  address?: string | null;
+}
+
+// GET /api/lab/patients/{code} — только то, что нужно, чтобы убедиться, что это тот самый пациент
+export interface LabPatient {
+  id: number;
+  patientCode: string;
+  fullName: string;
+  dateOfBirth: string | null;
+  gender: string;
+}
+
+export type LabAnalysisStatus = 'NotAnalyzed' | 'Draft' | 'Confirmed';
+
+// GET /api/lab/documents — очередь лаборатории
+export interface LabDocument {
+  id: number;
+  patientId: number;
+  patientName: string;
+  patientCode: string;
+  originalFileName: string;
+  uploadDate: string;
+  uploadedBy: string;
+  analysisStatus: LabAnalysisStatus;
+  resultsCount: number;
+  criticalCount: number;
+}
+
+// GET /api/documents/{id}/history — журнал действий с документом
+export interface AuditEvent {
+  at: string;
+  userName: string;
+  userRole: string;
+  laboratoryName: string | null;
+  action: 'PatientLookedUp' | 'DocumentUploaded' | 'DocumentAnalyzed' | 'AnalysisConfirmed' | 'DocumentDeleted';
+  details: string;
 }

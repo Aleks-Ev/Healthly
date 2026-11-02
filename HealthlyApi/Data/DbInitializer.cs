@@ -8,8 +8,9 @@ namespace HealthlyApi.Data;
 
 // Подготовка базы при запуске API (вызывается из Program.cs):
 // 1. Database:MigrateOnStartup = true → применить миграции (включено в Docker; локально — dotnet ef database update).
-// 2. Только в Development:
-//    - администратор из user-secrets (SeedAdmin:Email / SeedAdmin:Password), если его ещё нет;
+// 2. Во всех окружениях: администратор из SeedAdmin:Email / SeedAdmin:Password (user-secrets, в Docker — .env),
+//    если его ещё нет. Так у публичного демо-сервера (Production, без демо-аккаунтов) появляется первый админ.
+// 3. Только в Development:
 //    - DemoData:Enabled = true → три демо-аккаунта с историей анализов за последние 6 месяцев
 //      (глюкоза, холестерин, гемоглобин), чтобы графики Health Trends сразу показывали динамику.
 //
@@ -27,6 +28,9 @@ public static class DbInitializer
     public const string DoctorPassword = "Doctor123!";
     public const string AdminEmail = "admin@healthly.com";
     public const string AdminPassword = "Admin123!";
+    public const string LabStaffEmail = "lab@healthly.com";
+    public const string LabStaffPassword = "Lab123!";
+    private const string DemoLaboratoryName = "Healthly Partner Lab — Istanbul";
 
     // Сколько месяцев истории и сколько дней назад был последний анализ
     private const int HistoryMonths = 6;
@@ -59,19 +63,81 @@ public static class DbInitializer
             await context.Database.MigrateAsync();
         }
 
+        await SyncReferenceValuesAsync(app, context);
+        // Пациентам, зарегистрированным до появления Healthly ID, — выдать код (во всех окружениях)
+        await PatientCodes.AssignMissingAsync(context);
+
+        var passwords = services.GetRequiredService<PasswordService>();
+        await SeedAdminFromSecretsAsync(app, context, passwords);
+
         if (!app.Environment.IsDevelopment())
         {
             return;
         }
-
-        var passwords = services.GetRequiredService<PasswordService>();
-        await SeedAdminFromSecretsAsync(app, context, passwords);
 
         if (app.Configuration.GetValue<bool>("DemoData:Enabled"))
         {
             var storage = services.GetRequiredService<FileStorageService>();
             var resetHistory = app.Configuration.GetValue<bool>("DemoData:ResetHistory");
             await SeedDemoAccountsAsync(app.Logger, context, passwords, storage, resetHistory);
+            await SeedDemoLaboratoryAsync(app.Logger, context, passwords);
+            await PatientCodes.AssignMissingAsync(context);
+        }
+    }
+
+    // Демо-лаборатория и её сотрудник — чтобы рабочее место /lab можно было открыть сразу (только Development).
+    // Ничего не меняет, если аккаунт уже есть
+    private static async Task SeedDemoLaboratoryAsync(ILogger logger, AppDbContext context, PasswordService passwords)
+    {
+        if (await context.Users.AnyAsync(u => u.Email == LabStaffEmail))
+        {
+            return;
+        }
+
+        var laboratory = await context.Laboratories.FirstOrDefaultAsync(l => l.Name == DemoLaboratoryName);
+        if (laboratory == null)
+        {
+            laboratory = new Laboratory { Name = DemoLaboratoryName, City = TestingCities.Istanbul, Address = "Demo street 1, Istanbul" };
+            context.Laboratories.Add(laboratory);
+            await context.SaveChangesAsync();
+        }
+
+        var staff = new User
+        {
+            Email = LabStaffEmail,
+            FullName = "Deniz Lab",
+            Role = Roles.LabStaff,
+            LaboratoryId = laboratory.Id,
+        };
+        staff.PasswordHash = passwords.Hash(staff, LabStaffPassword);
+        context.Users.Add(staff);
+        await context.SaveChangesAsync();
+        logger.LogInformation("Demo laboratory staff account created: {Email}", LabStaffEmail);
+    }
+
+    // Справочник норм: Data/reference-values.csv → таблица ReferenceMedicalValues (во всех окружениях, при каждом запуске).
+    // Таблица целиком заменяется содержимым файла в одной транзакции: файл — единственный источник норм,
+    // на строки справочника ничего не ссылается. Ошибка в файле останавливает запуск (см. ReferenceValuesCsv)
+    private static async Task SyncReferenceValuesAsync(WebApplication app, AppDbContext context)
+    {
+        var path = app.Configuration["ReferenceValues:Path"] is { Length: > 0 } configured
+            ? configured
+            : Path.Combine(AppContext.BaseDirectory, "Data", "reference-values.csv");
+        var values = ReferenceValuesCsv.Load(path);
+
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        await context.ReferenceMedicalValues.ExecuteDeleteAsync();
+        context.ReferenceMedicalValues.AddRange(values);
+        await context.SaveChangesAsync();
+        await transaction.CommitAsync();
+
+        var drafts = values.Count(v => string.IsNullOrWhiteSpace(v.ReviewedBy));
+        app.Logger.LogInformation("Reference values loaded from {Path}: {Count} rows", path, values.Count);
+        if (drafts > 0)
+        {
+            app.Logger.LogWarning(
+                "{Drafts} of {Count} reference value rows are DRAFTS not yet reviewed by a medical advisor (empty ReviewedBy). See Data/REFERENCE_VALUES.md",
+                drafts, values.Count);
         }
     }
 

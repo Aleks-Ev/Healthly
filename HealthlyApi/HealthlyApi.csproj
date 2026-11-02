@@ -10,6 +10,11 @@
     <UserSecretsId>84ab9b4e-8228-4f4b-8987-cf492ce0fa11</UserSecretsId>
   </PropertyGroup>
 
+  <!-- Справочник норм (правят врачи-консультанты): копируется рядом с dll, в том числе в Docker-образ -->
+  <ItemGroup>
+    <None Update="Data\reference-values.csv" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.5" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5" />

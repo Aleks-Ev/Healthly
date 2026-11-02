@@ -1,5 +1,8 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using HealthlyApi.Models;
+using HealthlyApi.Services.Ai;
 
 namespace HealthlyApi.Data;
 
@@ -12,6 +15,9 @@ public class AppDbContext : DbContext
     public DbSet<TestResult> TestResults => Set<TestResult>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ReferenceMedicalValue> ReferenceMedicalValues => Set<ReferenceMedicalValue>();
+    public DbSet<DocumentAnalysis> DocumentAnalyses => Set<DocumentAnalysis>();
+    public DbSet<Laboratory> Laboratories => Set<Laboratory>();
+    public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -47,16 +53,23 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<ReferenceMedicalValue>(value =>
         {
-            value.HasIndex(v => v.MetricName).IsUnique();
+            // Не уникальный: у показателя может быть несколько строк (женщины/мужчины, возрастные группы)
+            value.HasIndex(v => v.MetricName);
             value.Property(v => v.MetricName).HasMaxLength(100);
+            value.Property(v => v.Aliases).HasMaxLength(500);
+            value.Property(v => v.Sex).HasMaxLength(10);
             // numeric(10,3): до 9 999 999.999 — хватает и для g/L, и для 10^9/L
             value.Property(v => v.MinNormal).HasPrecision(10, 3);
             value.Property(v => v.MaxNormal).HasPrecision(10, 3);
+            value.Property(v => v.CriticalLow).HasPrecision(10, 3);
+            value.Property(v => v.CriticalHigh).HasPrecision(10, 3);
             value.Property(v => v.Unit).HasMaxLength(30);
             value.Property(v => v.Category).HasMaxLength(100);
             value.Property(v => v.DoctorSpecialty).HasMaxLength(100);
-            // Справочные нормы создаются миграцией (см. ReferenceMedicalValueSeed)
-            value.HasData(ReferenceMedicalValueSeed.Values);
+            value.Property(v => v.Source).HasMaxLength(300);
+            value.Property(v => v.ReviewedBy).HasMaxLength(100);
+            // Строки не создаются миграцией: их при каждом запуске синхронизирует DbInitializer
+            // из Data/reference-values.csv (файл правят врачи-консультанты, см. Data/REFERENCE_VALUES.md)
         });
 
         modelBuilder.Entity<TestResult>(result =>
@@ -66,5 +79,58 @@ public class AppDbContext : DbContext
             result.Property(r => r.Unit).HasMaxLength(30);
             result.Property(r => r.ReferenceRange).HasMaxLength(50);
         });
+
+        modelBuilder.Entity<Laboratory>(laboratory =>
+        {
+            laboratory.Property(l => l.Name).HasMaxLength(200);
+            laboratory.Property(l => l.City).HasMaxLength(50);
+            laboratory.Property(l => l.Address).HasMaxLength(300);
+        });
+
+        // Healthly ID уникален; лабораторию удалили — сотрудник и документы остаются, связь обнуляется
+        modelBuilder.Entity<User>(user =>
+        {
+            user.HasIndex(u => u.PatientCode).IsUnique();
+            user.Property(u => u.PatientCode).HasMaxLength(20);
+            user.HasOne(u => u.Laboratory).WithMany().HasForeignKey(u => u.LaboratoryId).OnDelete(DeleteBehavior.SetNull);
+        });
+        modelBuilder.Entity<MedicalDocument>(document =>
+        {
+            document.HasIndex(d => d.LaboratoryId);
+            document.HasOne(d => d.Laboratory).WithMany().HasForeignKey(d => d.LaboratoryId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<AuditEvent>(audit =>
+        {
+            audit.HasIndex(a => a.DocumentId);
+            audit.HasIndex(a => a.PatientId);
+            audit.Property(a => a.UserName).HasMaxLength(200);
+            audit.Property(a => a.UserRole).HasMaxLength(20);
+            audit.Property(a => a.Action).HasMaxLength(50);
+            audit.Property(a => a.Details).HasMaxLength(500);
+        });
+
+        modelBuilder.Entity<DocumentAnalysis>(analysis =>
+        {
+            // Один анализ на документ; удалили документ — удалился и анализ
+            analysis.HasIndex(a => a.MedicalDocumentId).IsUnique();
+            analysis.HasOne(a => a.MedicalDocument)
+                .WithOne()
+                .HasForeignKey<DocumentAnalysis>(a => a.MedicalDocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+            analysis.Property(a => a.Model).HasMaxLength(100);
+            // Показатели от ИИ — одним jsonb-полем: это снимок ответа модели, отдельная таблица не нужна
+            analysis.Property(a => a.Indicators)
+                .HasColumnType("jsonb")
+                .HasConversion(
+                    indicators => JsonSerializer.Serialize(indicators, JsonOptions),
+                    json => JsonSerializer.Deserialize<List<AiExtractedIndicator>>(json, JsonOptions) ?? new List<AiExtractedIndicator>(),
+                    new ValueComparer<List<AiExtractedIndicator>>(
+                        (a, b) => a!.SequenceEqual(b!),
+                        list => list.Aggregate(0, (hash, item) => HashCode.Combine(hash, item.GetHashCode())),
+                        list => list.ToList()));
+        });
     }
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 }

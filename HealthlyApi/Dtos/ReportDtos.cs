@@ -16,6 +16,7 @@ public record ReportIndicator(
     string Unit,
     string ReferenceRange,
     bool IsAbnormal,
+    bool IsCritical,
     DateTime MeasuredAt,
     int MeasurementsCount,
     int DocumentId);
@@ -34,4 +35,5 @@ public record TrendPoint(
     int DocumentId,
     DateTime MeasuredAt,
     double Value,
-    bool IsAbnormal);
+    bool IsAbnormal,
+    bool IsCritical);

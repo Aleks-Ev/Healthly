@@ -74,7 +74,7 @@ public abstract class LlmDocumentProcessor : IAiDocumentProcessor
             IsMock: false);
     }
 
-    // Нормы передаём только как список названий и единиц — чтобы модель называла показатели так же, как справочник.
+    // Нормы передаём только как список названий, синонимов и единиц — чтобы модель называла показатели так же, как справочник.
     // Возраст, пол и имя пациента в модель не отправляются: для извлечения показателей они не нужны.
     private static string BuildSystemPrompt(IReadOnlyList<ReferenceMedicalValue> references)
     {
@@ -82,6 +82,10 @@ public abstract class LlmDocumentProcessor : IAiDocumentProcessor
         foreach (var reference in references.DistinctBy(r => r.MetricName, StringComparer.OrdinalIgnoreCase))
         {
             catalog.Append("- ").Append(reference.MetricName);
+            if (!string.IsNullOrEmpty(reference.Aliases))
+            {
+                catalog.Append(" — also printed as ").Append(reference.Aliases.Replace("|", ", "));
+            }
             if (!string.IsNullOrEmpty(reference.Unit))
             {
                 catalog.Append(" — usually in ").Append(reference.Unit);

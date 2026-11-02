@@ -4,8 +4,15 @@
 import type {
   AuthResponse,
   ChangePasswordRequest,
+  AuditEvent,
+  ConfirmAnalysisRequest,
   CreateUserRequest,
+  DocumentAnalysis,
   DocumentStatus,
+  LabDocument,
+  LabPatient,
+  Laboratory,
+  LaboratoryRequest,
   IndicatorTrend,
   LoginRequest,
   MedicalDocument,
@@ -246,6 +253,26 @@ export const documentsApi = {
   updateStatus: (id: number, status: DocumentStatus) =>
     request<MedicalDocumentDetails>(`/documents/${id}/status`, { method: 'PUT', json: { status } }),
   remove: (id: number) => request<void>(`/documents/${id}`, { method: 'DELETE' }),
+  // ИИ-анализ: 10–30 секунд (OCR + модель); 422 — документ не читается, 503 — ИИ временно недоступен.
+  // Сохранённый черновик возвращается сразу, без нового вызова ИИ; force — проанализировать заново
+  analyze: (id: number, force = false) =>
+    request<DocumentAnalysis>(`/documents/${id}/analyze${force ? '?force=true' : ''}`, { method: 'POST' }),
+  // null — документ ещё не анализировали
+  getAnalysis: async (id: number) => {
+    try {
+      return await request<DocumentAnalysis>(`/documents/${id}/analysis`);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        return null;
+      }
+      throw err;
+    }
+  },
+  // Подтверждённые показатели заменяют все показатели документа и попадают в историю и графики
+  // Журнал: кто загрузил (из какой лаборатории), кто запускал анализ, кто подтвердил
+  history: (id: number) => request<AuditEvent[]>(`/documents/${id}/history`),
+  confirmAnalysis: (id: number, data: ConfirmAnalysisRequest) =>
+    request<MedicalDocumentDetails>(`/documents/${id}/analysis/confirm`, { method: 'POST', json: data }),
   // Файл нужно скачивать с заголовком Authorization, поэтому обычная ссылка не подходит
   download: async (id: number, fileName: string) => {
     const response = await send(`/documents/${id}/file`);
@@ -263,4 +290,22 @@ export const resultsApi = {
     request<TestResult>(`/documents/${documentId}/results`, { method: 'POST', json: data }),
   update: (id: number, data: TestResultRequest) => request<TestResult>(`/results/${id}`, { method: 'PUT', json: data }),
   remove: (id: number) => request<void>(`/results/${id}`, { method: 'DELETE' }),
+};
+
+// Лаборатории-партнёры (Admin)
+export const laboratoriesApi = {
+  list: () => request<Laboratory[]>('/laboratories'),
+  create: (data: LaboratoryRequest) => request<Laboratory>('/laboratories', { method: 'POST', json: data }),
+  remove: (id: number) => request<void>(`/laboratories/${id}`, { method: 'DELETE' }),
+};
+
+// Рабочее место сотрудника лаборатории (LabStaff). code — Healthly ID пациента ("HL-7K3P9Q", регистр и пробелы не важны)
+export const labApi = {
+  findPatient: (code: string) => request<LabPatient>(`/lab/patients/${encodeURIComponent(code.trim())}`),
+  upload: (code: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request<MedicalDocumentDetails>(`/lab/patients/${encodeURIComponent(code.trim())}/documents`, { method: 'POST', formData });
+  },
+  documents: (pendingOnly = false) => request<LabDocument[]>(`/lab/documents${pendingOnly ? '?pending=true' : ''}`),
 };

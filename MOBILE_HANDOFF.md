@@ -72,7 +72,8 @@ All endpoints live under `/api`. Base URL = `http://<host>:5097`.
 | Android emulator | `http://10.0.2.2:5097` | `10.0.2.2` is the emulator's alias for the host PC's `localhost` |
 | iOS simulator | `http://localhost:5097` | The simulator shares the Mac's network |
 | Real phone, same Wi-Fi | `http://<PC's LAN IP>:5097`, e.g. `http://192.168.1.152:5097` | Find the IP: `ipconfig` (Windows) → *Wi-Fi adapter → IPv4 Address*. Needs the `lan` profile and the firewall rule above |
-| Real phone, any network | `https://<id>.ngrok-free.app` | Run `ngrok http 5097` on the PC. HTTPS, no firewall or cleartext settings needed. The URL changes on every ngrok restart (free plan) |
+| Real phone, any network — **shared demo server** | `https://healthilyclub.com` | The project owner's PC behind Cloudflare Tunnel (HTTPS, nothing to configure). Production mode: no demo accounts — register in the app or ask the owner for a Doctor/Lab account. Works while that PC is on |
+| Real phone, any network — your own API | `https://<id>.ngrok-free.app` | Run `ngrok http 5097` on the PC. HTTPS, no firewall or cleartext settings needed. The URL changes on every ngrok restart (free plan) |
 
 Keep the base URL in one config value (e.g. `--dart-define=API_URL=...` in Flutter, `.env` / `app.config.ts` in React Native).
 
@@ -142,6 +143,7 @@ They exist only in local development databases.
 | Patient | `patient@healthly.com` | `Patient123!` | **Elif Kaya**, Istanbul. Glucose and cholesterol above normal, hemoglobin below — all back to normal by the latest test. Plus 1 `Pending` document (yesterday) waiting for a doctor |
 | Doctor | `doctor@healthly.com` | `Doctor123!` | **Dr. Mehmet Yilmaz**, Ankara — stable, normal results. Sees all patients and their records, can change document statuses |
 | Admin | `admin@healthly.com` | `Admin123!` | **Healthly Admin**, Izmir — cholesterol and glucose slowly rising out of range (an example of a worsening trend). Full user management |
+| LabStaff | `lab@healthly.com` | `Lab123!` | **Deniz Lab**, staff of *Healthly Partner Lab — Istanbul*. Website only (`/lab`): finds patients by Healthly ID, uploads and confirms their reports |
 
 **Lab history (all three accounts):** 6 lab reports, one per month for the last 6 months (the latest one week before
 the API first started), each with **Glucose** (mmol/L), **Cholesterol** (mmol/L) and **Hemoglobin** (g/L) — so
@@ -204,6 +206,7 @@ the API first started), each with **Glucose** (mmol/L), **Cholesterol** (mmol/L)
 | `404` | Not found (record or URL) | `"User not found"` |
 | `405` | Wrong HTTP method for the URL | `"This HTTP method is not supported for this endpoint."` |
 | `409` | Email already registered | `"A user with this email already exists"` |
+| `429` | Rate limit: login/register — 20 per minute per IP; `POST /api/documents/{id}/analyze` — 20 per hour per user; lab Healthly ID lookup — 30 per minute. Wait `Retry-After` seconds (header) | `"Too many requests. Please try again in 42 seconds."` |
 | `500` | Server bug | `"An unexpected error occurred. Please try again later."` |
 
 Validation error (`400`) — show `errors[field][0]` under the matching input. Keys are PascalCase DTO property names
@@ -245,7 +248,9 @@ The patient's own id is `user.id` from login / `/api/auth/me`. A patient gets `4
 | `GET` | `/api/documents/{id}` | Document details + its test results |
 | `GET` | `/api/documents/{id}/file` | Download the original file |
 | `DELETE` | `/api/documents/{id}` | Delete own document |
-| `POST` | `/api/documents/{id}/analyze` | AI analysis of a PDF or photo (OCR → Gemini → Groq; mock without server keys) |
+| `POST` | `/api/documents/{id}/analyze` | AI analysis of a PDF or photo (OCR → Gemini → Groq; mock without server keys); saved as a draft, `?force=true` re-analyzes |
+| `GET` | `/api/documents/{id}/analysis` | The saved analysis (draft or confirmed); `404` = not analyzed yet |
+| `POST` | `/api/documents/{id}/analysis/confirm` | Save the values checked against the report → test results, history, charts |
 | `POST` | `/api/documents/{id}/results` | Add a test result to a document |
 | `PUT` / `DELETE` | `/api/results/{id}` | Edit / delete a test result |
 
@@ -305,12 +310,25 @@ Request `{ "email": "patient@healthly.com", "password": "Patient123!" }`. Respon
     "phoneNumber": "+905321112233",
     "dateOfBirth": "1992-04-18",
     "city": "Istanbul",
-    "createdAt": "2026-10-23T00:11:14Z"
+    "createdAt": "2026-10-23T00:11:14Z",
+    "patientCode": "HL-7K3P9Q",
+    "laboratoryId": null,
+    "laboratoryName": null
   }
 }
 ```
 
 `GET /api/auth/me` and every user endpoint return the same `user` object (the `User` model).
+
+- **`patientCode` — Healthly ID** of a patient (`null` for other roles). The patient tells it at a partner laboratory, and
+  the lab staff use it to find them and upload their report. **The app should show it prominently, together with a QR
+  code that encodes exactly this text** (e.g. `HL-7K3P9Q`): lab QR scanners type it into the lab's web page like a
+  keyboard. The code is permanent; treat it like a membership number (do not post it publicly).
+- Roles are `Patient`, `Doctor`, `Admin` and **`LabStaff`** (laboratory staff — they use the website, not the app).
+  `laboratoryId` / `laboratoryName` are set only for `LabStaff`.
+- Documents may now be uploaded **by a laboratory** for the patient; they appear in the patient's documents like any
+  other. `GET /api/documents/{id}/history` shows who uploaded the document (and from which laboratory), who ran the
+  AI analysis and who confirmed the values — good to show as "Added by Healthly Partner Lab — Istanbul".
 
 ### Refresh — `POST /api/auth/refresh`
 
@@ -336,11 +354,17 @@ A wrong current password returns **`400`** with `errors.CurrentPassword` — not
 A full update: send all fields, even unchanged ones.
 
 ```json
-{ "email": "patient@healthly.com", "fullName": "Elif Kaya", "height": 166, "weight": 59.5, "gender": "Female", "role": null, "password": null }
+{ "email": "patient@healthly.com", "fullName": "Elif Kaya", "height": 166, "weight": 59.5, "gender": "Female",
+  "phoneNumber": "+90 532 111 22 33", "dateOfBirth": "1992-04-18", "city": "Istanbul", "role": null, "password": null }
 ```
 
 `height` is 30–300 cm, `weight` is 1–500 kg, both optional. A patient must send `role: null` and `password: null`;
-anything else returns `403`. `phoneNumber`, `dateOfBirth` and `city` are set at registration and cannot be edited yet.
+anything else returns `403`. `gender` is `Female`, `Male`, `Other` or empty.
+
+`phoneNumber` (+90 and 10 digits), `dateOfBirth` (`YYYY-MM-DD`, age 18–120) and `city` (a testing city) can be edited:
+**`null` or omitted keeps the current value** (older app versions that do not send them will not erase them); an empty
+string clears the phone or city. **Ask users without a date of birth or gender to add them** — the reference ranges of
+lab results depend on them (the AI analysis returns `patientDataNote` when they are missing).
 
 ### Health report — `GET /api/users/{id}/report`
 
@@ -456,11 +480,12 @@ highlight it and ask the user to check it against the paper report before saving
   "documentId": 33,
   "indicators": [
     { "testName": "Glucose", "value": "6.2", "unit": "mmol/L", "referenceRange": "3.9-5.6", "isAbnormal": true,
-      "category": "Biochemistry", "doctorSpecialty": "Endocrinologist", "confidence": 0.94 },
-    { "testName": "Leukocytes", "value": "7.7", "unit": "10^9/L", "referenceRange": "4-9", "isAbnormal": false,
-      "category": "Complete blood count", "doctorSpecialty": "Hematologist", "confidence": 0.91 }
+      "isCritical": false, "category": "Biochemistry", "doctorSpecialty": "Endocrinologist", "confidence": 0.94 },
+    { "testName": "Leukocytes", "value": "7.7", "unit": "10^9/L", "referenceRange": "4-10", "isAbnormal": false,
+      "isCritical": false, "category": "Complete blood count", "doctorSpecialty": "Hematologist", "confidence": 0.91 }
   ],
   "abnormalCount": 3,
+  "criticalCount": 0,
   "summary": "[Mock AI summary] 3 of 4 indicators are outside the reference range: Glucose, Cholesterol, Hemoglobin. ...",
   "recommendations": ["Repeat a fasting glucose test and consider an HbA1c test.", "..."],
   "suggestedSpecialists": ["Endocrinologist", "Cardiologist", "Hematologist"],
@@ -474,12 +499,40 @@ highlight it and ask the user to check it against the paper report before saving
 
 - `isAbnormal` is decided by the server against its reference norms (not by the AI); `null` = could not be determined
   or the value looks misread (then `confidence` is ≤ 0.4 — ask the user to check it).
+- **`isCritical: true`** — the value is beyond a critical (life-threatening) limit, e.g. potassium ≥ 6.2 mmol/L;
+  `criticalCount` > 0 on the response. Required in the app:
+  - highlight the row in **red** and show a red banner above the results: *"Critical value: … Contact your doctor
+    right away or seek urgent medical care."* If that indicator's `confidence` ≤ 0.4, say *"Possible critical value —
+    check it against the original report"* instead (it may be a reading error);
+  - a **push notification** to the user. The server does not send pushes yet — for now show a local notification
+    when the analysis response has `criticalCount > 0`; server-side push (e.g. FCM) will come with saved analyses.
+  - The norms are a **draft not yet reviewed by a doctor** — do not show the evaluation to real patients before release.
+- Norms depend on the user's **sex and age** (taken from the profile); names are normalized to the catalog
+  (`WBC` → `Leukocytes`, `SGPT` → `ALT`).
 - Values keep the lab's units; `referenceRange` is shown in the same units (the server converts g/dL ↔ g/L,
   mg/dL ↔ mmol/L, /cumm ↔ 10^9/L itself). `testName` uses the catalog name when the indicator is in it.
 - `suggestedSpecialists` — doctors for the out-of-range indicators; empty when everything is normal.
 - `anonymizedText` — the text that was sent to the AI after personal data was masked; you don't need to show it.
 - **Always show `disclaimer`** next to the AI summary.
-- Nothing is saved. To keep the values, add them as results: `POST /api/documents/{id}/results` for each indicator.
+- **`patientDataNote`** (string or `null`): the profile has no date of birth or sex (or sex is `Other`), so age- or
+  sex-specific ranges were not applied to every test. Show it above the results with a link to edit the profile.
+- **Draft → confirm.** The analysis is saved as a draft (`confirmedAt: null`). Calling `analyze` again returns the saved
+  draft instantly, without a new AI request; `POST /analyze?force=true` reads the report again (uses the AI quota) and
+  resets the confirmation. `GET /api/documents/{id}/analysis` loads it when the screen opens (`404` — not analyzed yet).
+- The values reach the history and charts only after the user checks them against the report and confirms:
+
+  ```json
+  POST /api/documents/{id}/analysis/confirm
+  { "indicators": [
+      { "testName": "Glucose", "value": "500", "unit": "mg/dL", "referenceRange": "70-100" },
+      { "testName": "Hemoglobin", "value": "13.1", "unit": "g/dL", "referenceRange": "12.0-15.5" } ] }
+  ```
+
+  Send the rows after the user's fixes, without the rows they removed. Do not allow confirming while a row with
+  `confidence` ≤ 0.4 is neither edited nor ticked as checked. The confirmed values **replace all test results of the
+  document** (warn the user if it already has some) and are **converted to the reference units** (glucose 500 mg/dL →
+  27.753 mmol/L, hemoglobin 13.1 g/dL → 131 g/L) so the charts never mix units. Response: the document with its
+  `results` (each with `isAbnormal` and `isCritical`); the document becomes `Completed`. `400` — empty list.
 - Errors: `403` (someone else's document), `404` (no document, or its file is missing),
   `422` (nothing readable — blurry/dark photo or damaged file; show `detail`, it says what to do),
   `503` (AI or text recognition unavailable — offer "Try again later").
@@ -496,6 +549,10 @@ highlight it and ask the user to check it against the paper report before saving
 supported formats: `120-160`, `<5`, `<=5`, `>1.2`, `>=1.2` (a comma works as the decimal separator).
 Send `true`/`false` to set it manually (needed for non-numeric values like `"positive"`).
 
+Every test result in responses has **`isCritical`** (set by the server from the reference norms for the patient's sex and
+age, also for manually added results). The same flag is on `GET /api/users/{id}/report` → `indicators[]` (critical first)
+and on every point of `GET /api/users/{id}/trends`. Show critical values in red everywhere (see the AI analysis section).
+
 ---
 
 ## 8. Doctor / Admin endpoints
@@ -508,7 +565,7 @@ Send `true`/`false` to set it manually (needed for non-numeric values like `"pos
 | `GET` | `/api/documents/{id}` · `/file` | ✅ | ✅ | Any document |
 | `PUT` | `/api/documents/{id}/status` | ✅ | ✅ | **Moderation**: change document status |
 | `POST` | `/api/documents/{id}/results` · `PUT/DELETE /api/results/{id}` | ✅ | ✅ | Enter / correct a patient's results |
-| `POST` | `/api/users` | ❌ | ✅ | Create a user with any role |
+| `POST` | `/api/users` | ❌ | ✅ | Create a user with any role (a `Patient` needs `dateOfBirth` and `gender`) |
 | `PUT` | `/api/users/{id}` | ❌ (own only) | ✅ | Edit any user, incl. `role` and `password` |
 | `DELETE` | `/api/users/{id}` | ❌ | ✅ | Delete a user with all their documents (not yourself) |
 | `DELETE` | `/api/documents/{id}` | ❌ | ✅ | Delete any document |

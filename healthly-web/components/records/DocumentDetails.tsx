@@ -1,6 +1,7 @@
 'use client';
 
-// Страница документа: файл, статус обработки и таблица показателей с добавлением/редактированием/удалением.
+// Страница документа: файл, статус обработки, ИИ-анализ (DocumentAnalysisCard) и таблица показателей
+// с добавлением/редактированием/удалением.
 
 import { useCallback, useState } from 'react';
 import Link from 'next/link';
@@ -12,6 +13,9 @@ import Alert from '@/components/ui/Alert';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { AbnormalBadge, StatusBadge } from '@/components/ui/Badge';
 import TestResultFormModal from './TestResultFormModal';
+import DocumentAnalysisCard from './DocumentAnalysisCard';
+import CriticalBanner from './CriticalBanner';
+import DocumentHistory from './DocumentHistory';
 import { documentsApi, getErrorMessage, resultsApi } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDate, formatFileSize } from '@/lib/format';
@@ -31,6 +35,8 @@ export default function DocumentDetails() {
   const [editingResult, setEditingResult] = useState<TestResult | null | undefined>(undefined);
   const [resultToDelete, setResultToDelete] = useState<TestResult | null>(null);
   const [isDeletingDocument, setIsDeletingDocument] = useState(false);
+  // Растёт после анализа/подтверждения — история документа перезагружается
+  const [historyVersion, setHistoryVersion] = useState(0);
 
   if (loadError) {
     return <Alert>{loadError}</Alert>;
@@ -43,7 +49,8 @@ export default function DocumentDetails() {
   const isOwner = document.userId === user.id;
   const isStaff = hasRole('Doctor', 'Admin');
   const canDeleteDocument = isOwner || hasRole('Admin');
-  const backHref = isOwner ? '/dashboard' : `/admin/users/${document.userId}`;
+  // Сотрудник лаборатории возвращается в очередь лаборатории, а не в медкарту пациента (к ней у него нет доступа)
+  const backHref = hasRole('LabStaff') ? '/lab' : isOwner ? '/dashboard' : `/admin/users/${document.userId}`;
 
   const handleStatusChange = async (status: DocumentStatus) => {
     setActionError(null);
@@ -67,7 +74,7 @@ export default function DocumentDetails() {
     <div className="space-y-6">
       <Link href={backHref} className="inline-flex items-center gap-1.5 text-sm text-[#6b756e] hover:text-[#242b26]">
         <ArrowLeft className="w-4 h-4" />
-        Back to records
+        {hasRole('LabStaff') ? 'Back to laboratory' : 'Back to records'}
       </Link>
 
       <Card>
@@ -110,6 +117,18 @@ export default function DocumentDetails() {
         {actionError && <Alert className="mt-4">{actionError}</Alert>}
       </Card>
 
+      <CriticalBanner items={document.results.filter((result) => result.isCritical)} />
+
+      <DocumentAnalysisCard
+        documentId={document.id}
+        existingResultsCount={document.results.length}
+        onConfirmed={(updated) => {
+          setDocument(updated);
+          setHistoryVersion((version) => version + 1);
+        }}
+        onAnalyzed={() => setHistoryVersion((version) => version + 1)}
+      />
+
       <Card
         title="Test results"
         actions={
@@ -120,7 +139,7 @@ export default function DocumentDetails() {
         }
       >
         {document.results.length === 0 ? (
-          <EmptyState>No results yet. Add the values from this document.</EmptyState>
+          <EmptyState>No results yet. Analyze the document with AI and confirm the values, or add them manually.</EmptyState>
         ) : (
           <div className="overflow-x-auto -mx-5 sm:-mx-6">
             <table className="w-full min-w-[560px] text-sm">
@@ -135,11 +154,11 @@ export default function DocumentDetails() {
               </thead>
               <tbody>
                 {document.results.map((result) => (
-                  <tr key={result.id} className="border-b border-[#e1e7dc] last:border-0">
+                  <tr key={result.id} className={`border-b border-[#e1e7dc] last:border-0 ${result.isCritical ? 'bg-red-50 text-red-800' : ''}`}>
                     <td className="px-5 sm:px-6 py-3 font-medium">{result.testName}</td>
                     <td className="px-3 py-3">{result.value} <span className="text-[#6b756e]">{result.unit}</span></td>
                     <td className="px-3 py-3 text-[#6b756e]">{result.referenceRange || '—'}</td>
-                    <td className="px-3 py-3"><AbnormalBadge isAbnormal={result.isAbnormal} /></td>
+                    <td className="px-3 py-3"><AbnormalBadge isAbnormal={result.isAbnormal} isCritical={result.isCritical} /></td>
                     <td className="px-5 sm:px-6 py-3">
                       <div className="flex justify-end gap-1">
                         <Button variant="ghost" size="sm" aria-label="Edit" onClick={() => setEditingResult(result)}>
@@ -157,6 +176,8 @@ export default function DocumentDetails() {
           </div>
         )}
       </Card>
+
+      <DocumentHistory documentId={document.id} version={historyVersion} />
 
       <TestResultFormModal
         isOpen={editingResult !== undefined}

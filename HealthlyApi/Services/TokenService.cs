@@ -21,6 +21,8 @@ public class JwtOptions
 
 public class TokenService
 {
+    public const string LaboratoryClaim = "lab";
+
     private readonly JwtOptions _options;
 
     public TokenService(IOptions<JwtOptions> options)
@@ -32,19 +34,26 @@ public class TokenService
     {
         var expiresAt = DateTime.UtcNow.AddMinutes(_options.ExpiresMinutes);
 
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(JwtRegisteredClaimNames.Email, user.Email),
+            new(JwtRegisteredClaimNames.Name, user.FullName),
+            new("role", user.Role),
+        };
+        // Сотруднику лаборатории — её id: по нему проверяется доступ к документам (CanAccessDocument)
+        if (user.Role == Roles.LabStaff && user.LaboratoryId is { } laboratoryId)
+        {
+            claims.Add(new Claim(LaboratoryClaim, laboratoryId.ToString()));
+        }
+
         var descriptor = new SecurityTokenDescriptor
         {
             Issuer = _options.Issuer,
             Audience = _options.Audience,
             Expires = expiresAt,
             SigningCredentials = new SigningCredentials(_options.GetSigningKey(), SecurityAlgorithms.HmacSha256),
-            Subject = new ClaimsIdentity(
-            [
-                new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-                new Claim(JwtRegisteredClaimNames.Email, user.Email),
-                new Claim(JwtRegisteredClaimNames.Name, user.FullName),
-                new Claim("role", user.Role),
-            ]),
+            Subject = new ClaimsIdentity(claims),
         };
 
         return (new JsonWebTokenHandler().CreateToken(descriptor), expiresAt);
@@ -63,4 +72,14 @@ public static class ClaimsPrincipalExtensions
     // Доступ к данным пользователя: сам пользователь, Doctor или Admin
     public static bool CanAccessUser(this ClaimsPrincipal principal, int userId) =>
         principal.GetUserId() == userId || principal.IsStaff();
+
+    // Лаборатория сотрудника (claim "lab", только у LabStaff)
+    public static int? GetLaboratoryId(this ClaimsPrincipal principal) =>
+        int.TryParse(principal.FindFirstValue(TokenService.LaboratoryClaim), out var id) ? id : null;
+
+    // Доступ к документу: как к данным его владельца (сам, Doctor, Admin) или сотрудник лаборатории, которая его загрузила.
+    // Сотрудник видит только документы своей лаборатории — не всю медкарту пациента
+    public static bool CanAccessDocument(this ClaimsPrincipal principal, MedicalDocument document) =>
+        principal.CanAccessUser(document.UserId)
+        || (principal.IsInRole(Roles.LabStaff) && document.LaboratoryId != null && principal.GetLaboratoryId() == document.LaboratoryId);
 }

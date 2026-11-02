@@ -15,7 +15,10 @@ public record UserResponse(
     string PhoneNumber,
     DateOnly? DateOfBirth,
     string City,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    string? PatientCode,      // Healthly ID пациента ("HL-7K3P9Q"): называет в лаборатории или показывает QR-код
+    int? LaboratoryId,        // для LabStaff — лаборатория сотрудника
+    string? LaboratoryName);
 
 // POST /api/users — создание пользователя администратором
 public class CreateUserRequest
@@ -29,8 +32,11 @@ public class CreateUserRequest
     [Required, MinLength(8), MaxLength(128)]
     public string Password { get; set; } = string.Empty;
 
-    [Required, AllowedValues(Roles.Patient, Roles.Doctor, Roles.Admin)]
+    [Required, AllowedValues(Roles.Patient, Roles.Doctor, Roles.Admin, Roles.LabStaff)]
     public string Role { get; set; } = Roles.Patient;
+
+    // Обязательна для LabStaff (проверяет контроллер)
+    public int? LaboratoryId { get; set; }
 
     [Range(30, 300)]
     public double? Height { get; set; } // см
@@ -38,8 +44,21 @@ public class CreateUserRequest
     [Range(1, 500)]
     public double? Weight { get; set; } // кг
 
-    [MaxLength(50)]
+    // Для пациента пол и дата рождения обязательны (проверяет контроллер): по ним выбираются нормы анализов
+    [AllowedValues(Genders.Female, Genders.Male, Genders.Other, "", null, ErrorMessage = "Select Female, Male or Other")]
     public string? Gender { get; set; }
+
+    [RegularExpression(ProfileValidation.TurkishPhonePattern, ErrorMessage = ProfileValidation.TurkishPhoneMessage)]
+    public string? PhoneNumber { get; set; }
+
+    [AdultDateOfBirth]
+    public DateOnly? DateOfBirth { get; set; } // "YYYY-MM-DD"
+
+    [AllowedValues(
+        TestingCities.Istanbul, TestingCities.Ankara, TestingCities.Izmir, TestingCities.Antalya,
+        TestingCities.Bursa, TestingCities.Adana, TestingCities.Gaziantep, TestingCities.Konya, "", null,
+        ErrorMessage = "Select a city where you will be testing")]
+    public string? City { get; set; }
 }
 
 // PUT /api/users/{id} — полное обновление профиля.
@@ -58,11 +77,28 @@ public class UpdateUserRequest
     [Range(1, 500)]
     public double? Weight { get; set; }
 
-    [MaxLength(50)]
+    [AllowedValues(Genders.Female, Genders.Male, Genders.Other, "", null, ErrorMessage = "Select Female, Male or Other")]
     public string? Gender { get; set; }
 
-    [AllowedValues(Roles.Patient, Roles.Doctor, Roles.Admin, null)]
+    // Телефон, дата рождения, город: null — не менять (старые клиенты их не присылают и не должны стереть);
+    // пустая строка у телефона и города — очистить
+    [RegularExpression(ProfileValidation.TurkishPhonePattern, ErrorMessage = ProfileValidation.TurkishPhoneMessage)]
+    public string? PhoneNumber { get; set; }
+
+    [AdultDateOfBirth]
+    public DateOnly? DateOfBirth { get; set; }
+
+    [AllowedValues(
+        TestingCities.Istanbul, TestingCities.Ankara, TestingCities.Izmir, TestingCities.Antalya,
+        TestingCities.Bursa, TestingCities.Adana, TestingCities.Gaziantep, TestingCities.Konya, "", null,
+        ErrorMessage = "Select a city where you will be testing")]
+    public string? City { get; set; }
+
+    [AllowedValues(Roles.Patient, Roles.Doctor, Roles.Admin, Roles.LabStaff, null)]
     public string? Role { get; set; }
+
+    // Только Admin: лаборатория сотрудника (для LabStaff обязательна); null — не менять
+    public int? LaboratoryId { get; set; }
 
     [MinLength(8), MaxLength(128)]
     public string? Password { get; set; }
@@ -81,7 +117,10 @@ public static class UserMappings
         user.PhoneNumber,
         user.DateOfBirth,
         user.City,
-        user.CreatedAt);
+        user.CreatedAt,
+        user.PatientCode,
+        user.LaboratoryId,
+        user.Laboratory?.Name); // имя есть, если лаборатория загружена (Include)
 
     // "+90 (532) 123-45-67" → "+905321234567"
     public static string NormalizePhone(string phone) => "+" + new string(phone.Where(char.IsDigit).ToArray());

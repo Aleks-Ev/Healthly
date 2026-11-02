@@ -4,6 +4,7 @@
 #   docker compose logs -f api       — логи API
 #   docker compose down              — остановить (данные в томах сохраняются)
 #   docker compose down -v           — остановить и УДАЛИТЬ базу и загруженные файлы
+#   docker compose --profile tunnel up -d --build — то же + Cloudflare Tunnel: сайт в интернете (TEAM_GUIDE.md, «Публичный демо-сервер»)
 #
 # Адреса: сайт http://localhost:3000, API http://localhost:5097 (Scalar: /scalar), PostgreSQL localhost:5433.
 # Пароли и ключи переопределяются в файле .env рядом с этим файлом (шаблон — .env.example).
@@ -46,6 +47,11 @@ services:
       # true — пересоздать историю анализов демо-аккаунтов при старте (даты снова «последние 6 месяцев»)
       DemoData__ResetHistory: ${DEMO_RESET_HISTORY:-false}
       Cors__Origins__0: ${WEB_ORIGIN:-http://localhost:3000}
+      # Запросы приходят через прокси (Next.js, Cloudflare Tunnel): IP клиента и https — из X-Forwarded-* (Program.cs)
+      Proxy__TrustForwardedHeaders: "true"
+      # Первый администратор (создаётся, если такого email ещё нет; в Production — единственный способ его получить)
+      SeedAdmin__Email: ${SEED_ADMIN_EMAIL:-}
+      SeedAdmin__Password: ${SEED_ADMIN_PASSWORD:-}
       Storage__UploadsPath: /app/uploads
       # Ключи ИИ (необязательны): без них анализ документов работает как заглушка (isMock: true)
       Ai__Gemini__ApiKey: ${GEMINI_API_KEY:-}
@@ -62,11 +68,25 @@ services:
       args:
         # Адрес API, который видит БРАУЗЕР (не контейнер), поэтому localhost, а не api
         NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:5097/api}
+        # http://api:8080 — сайт сам проксирует /api/* в API (один адрес для туннеля; тогда PUBLIC_API_URL=/api)
+        API_PROXY_TARGET: ${API_PROXY_TARGET:-}
     restart: unless-stopped
     depends_on:
       - api
     ports:
       - "3000:3000"
+
+  # Cloudflare Tunnel: исходящее соединение к Cloudflare, сайт доступен по домену без проброса портов.
+  # Запускается только с --profile tunnel; маршрут «домен → http://web:3000» настраивается в панели Cloudflare
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    depends_on:
+      - web
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
 
 volumes:
   postgres-data:

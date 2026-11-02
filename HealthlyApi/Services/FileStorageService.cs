@@ -48,6 +48,20 @@ public class FileStorageService
         return storedName;
     }
 
+    // Сообщение об ошибке для клиента или null, если файл подходит (тип и размер) — одинаково для пациента и лаборатории
+    public static string? ValidateUpload(IFormFile file)
+    {
+        if (GetContentType(file.FileName) == null)
+        {
+            return $"Allowed file types: {string.Join(", ", AllowedExtensions)}";
+        }
+        if (file.Length == 0 || file.Length > MaxFileSizeBytes)
+        {
+            return "File must be between 1 byte and 10 MB";
+        }
+        return null;
+    }
+
     public Stream? OpenRead(string storedName)
     {
         var fullPath = GetFullPath(storedName);
