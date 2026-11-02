@@ -152,9 +152,11 @@ npm run dev        # http://localhost:3000
 |---|---|---|
 | **Patient** | Пациент. Все, кто регистрируется на сайте или в приложении | Видит и редактирует **только свои** данные: профиль, документы, показатели, отчёт, графики. Меняет свой пароль |
 | **Doctor** | Врач | Видит **всех** пациентов и их медкарты, вносит и исправляет показатели, меняет статус документов (модерация). Пользователей не создаёт и не удаляет |
-| **Admin** | Администратор | Всё, что врач, плюс: создать/изменить/удалить пользователя, назначить роль, задать пароль, удалить любой документ |
+| **Admin** | Администратор | Всё, что врач, плюс: создать/изменить/удалить пользователя, назначить роль, задать пароль, удалить любой документ, управлять лабораториями (`/admin/laboratories`) |
+| **LabStaff** | Сотрудник лаборатории-партнёра | Работает на `/lab`: находит пациента по Healthly ID, загружает бланк с компьютера лаборатории, анализирует и подтверждает. Открывает **только документы своей лаборатории** — не медкарту, не отчёт, не графики пациента |
 
-Сделать пользователя врачом или админом может только Admin (страница `/admin/users` → Edit → Role).
+Сделать пользователя врачом, админом или сотрудником лаборатории может только Admin (страница `/admin/users` → Edit → Role;
+для LabStaff — ещё выбрать лабораторию).
 
 ### Аккаунты
 
@@ -175,6 +177,9 @@ npm run dev        # http://localhost:3000
   испорченные демо-данные): один раз запустите API с флагом `DemoData:ResetHistory`:
   `DemoData__ResetHistory=true dotnet run` (bash) или `DEMO_RESET_HISTORY=true` в `.env` для Docker.
 - Своих пациентов можно регистрировать сколько угодно: http://localhost:3000/register или `POST /api/auth/register`.
+- **На публичном демо-сервере https://healthilyclub.com этих аккаунтов нет** (Production — их пароли записаны в
+  репозитории). Там есть только админ владельца проекта; врача и сотрудника лаборатории он создаёт на странице Users,
+  пациенты регистрируются сами. Нужен аккаунт врача/лаборатории для проверки — попросите владельца (раздел 7).
 
 ---
 
@@ -273,6 +278,8 @@ New-NetFirewallRule -DisplayName "Healthly API 5097" -Direction Inbound -Protoco
 | `403` | У роли нет прав или это данные другого пользователя (раздел 3, таблица ролей) |
 | Нет `/scalar` | API запущен не в Development (`ASPNETCORE_ENVIRONMENT=Production` или `API_ENVIRONMENT` в `.env`) |
 | `429 Too Many Requests` | Сработал лимит (вход/регистрация — 20 в минуту с одного IP, ИИ-анализ — 20 в час на пользователя, поиск по Healthly ID — 30 в минуту); подождите `Retry-After` секунд |
+| `api` в состоянии `Restarting`, в логах `password authentication failed for user "healthly"` | Том `healthly_postgres-data` остался от старого запуска с другим паролем (пароль PostgreSQL задаётся только при создании базы). Если там только тестовые данные: `docker compose --profile tunnel down`, `docker volume rm healthly_postgres-data healthly_uploads`, `docker compose --profile tunnel up -d` — база создастся заново (**данные Docker-версии удаляются**; локальная `healthly_db` и `HealthlyApi/uploads` не затрагиваются) |
+| `dotnet run` / `npm run dev`: порт занят | Работает Docker-стек демо-сервера — `docker compose --profile tunnel down` (данные сохранятся), после разработки запустите снова |
 | `healthilyclub.com` не открывается | Компьютер выключен/спит, не запущен Docker или туннель (раздел 7); в Cloudflare → Tunnels статус должен быть `HEALTHY` |
 
 ---
@@ -303,19 +310,36 @@ New-NetFirewallRule -DisplayName "Healthly API 5097" -Direction Inbound -Protoco
 ### Настройка (один раз, делает владелец проекта)
 
 1. **Cloudflare** → <https://one.dash.cloudflare.com> → **Networks → Tunnels → Create a tunnel** → тип
-   **Cloudflared** → имя `healthly-home` → на шаге установки выберите **Docker** и скопируйте **токен** — длинную
-   строку после `--token` (это секрет: не отправляйте его в чат и не коммитьте).
-2. Вставьте токен в `.env` в корне проекта: `CLOUDFLARE_TUNNEL_TOKEN=<токен>`.
+   **Cloudflared** → имя `healthly-home` → на шаге установки выберите **Docker** и нажмите значок копирования у
+   команды `docker run … --token eyJ…`. **Саму команду не запускайте** — туннель запускает наш `docker compose`
+   (контейнер `tunnel`). Нужен только **токен** — длинная строка после `--token ` (на экране скрыта звёздочками, но
+   копируется целиком). Это секрет: не отправляйте его в чат и не коммитьте.
+   Надпись «Waiting for your Tunnel to connect…» — нормально, она сменится на «Connected» после шага 3.
+2. Вставьте токен в `.env` в корне проекта — только токен, без `docker run` и `--token`:
+   `CLOUDFLARE_TUNNEL_TOKEN=eyJ…`.
    Остальное в `.env` уже заполнено для демо (`API_ENVIRONMENT=Production`, `WEB_ORIGIN=https://healthilyclub.com`,
    `PUBLIC_API_URL=/api`, `API_PROXY_TARGET=http://api:8080`, случайные пароль БД и `JWT_KEY`, ключи ИИ, админ).
 3. Остановите `dotnet run` и `npm run dev` (Docker займёт порты 3000 и 5097) и запустите:
    ```powershell
    docker compose --profile tunnel up -d --build
    ```
-4. В Cloudflare в настройках туннеля → **Public Hostname / Published application routes → Add**:
-   Subdomain — пусто, Domain — `healthilyclub.com`, Service — **HTTP**, URL — **`web:3000`**. Сохранить.
-   По желанию ещё один маршрут: Subdomain `www` → тот же `web:3000`.
-   Статус туннеля должен стать **HEALTHY**, через минуту открывайте https://healthilyclub.com.
+4. В Cloudflare в туннеле → **Add a route** → **Published application** (остальные варианты — Private hostname,
+   Private CIDR, Workers VPC — для закрытых корпоративных сетей, не нужны). Поля:
+
+   | Поле | Значение |
+   |---|---|
+   | Subdomain | пусто (серое `www` — подсказка, не значение; «Full hostname» должен быть `healthilyclub.com`) |
+   | Domain | `healthilyclub.com` |
+   | Path | пусто |
+   | Service URL | **`http://web:3000`** — именно `http`, не `https` (HTTPS для посетителей даёт Cloudflare), и `web`, не `localhost` (для контейнера туннеля `localhost` — он сам, а `web` — имя контейнера сайта) |
+
+   **Add route**. Статус туннеля → **HEALTHY**, через минуту открывайте https://healthilyclub.com.
+   Для `www.healthilyclub.com` — ещё один такой же маршрут с Subdomain `www` (необязательно, сейчас не добавлен).
+5. Войдите админом (`SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` из `.env`) → `/admin/laboratories` → добавить
+   лабораторию → `/admin/users` → создать врача и сотрудника лаборатории.
+
+Проверка, что всё запущено: `docker compose --profile tunnel ps` — `db` (healthy), `api`, `web`, `tunnel` в состоянии
+`Up`. Строка `Restarting` у `api` — смотрите `docker compose logs api` и таблицу проблем ниже.
 
 ### Каждый день
 
