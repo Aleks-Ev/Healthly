@@ -71,6 +71,10 @@ export interface CreateUserRequest {
   height?: number | null;
   weight?: number | null;
   gender?: string | null;
+  // Для пациента обязательны dateOfBirth и gender: по ним выбираются нормы анализов
+  phoneNumber?: string | null; // +90 и 10 цифр
+  dateOfBirth?: string | null; // "YYYY-MM-DD", возраст 18–120
+  city?: string | null;
   role: Role;
 }
 
@@ -81,6 +85,10 @@ export interface UpdateUserRequest {
   height?: number | null;
   weight?: number | null;
   gender?: string | null;
+  // null — не менять; "" у телефона и города — очистить
+  phoneNumber?: string | null;
+  dateOfBirth?: string | null;
+  city?: string | null;
   role?: Role | null;
   password?: string | null;
 }
@@ -142,6 +150,8 @@ export interface DocumentAnalysis {
   analyzedAt: string;
   // null — черновик; иначе показатели подтверждены человеком и сохранены в историю
   confirmedAt: string | null;
+  // в профиле нет даты рождения/пола — нормы по возрасту/полу применены не ко всем показателям
+  patientDataNote: string | null;
   disclaimer: string;
 }
 

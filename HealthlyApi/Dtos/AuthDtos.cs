@@ -20,7 +20,7 @@ public class RegisterRequest
     public string Password { get; set; } = string.Empty;
 
     // Турецкий номер: +90 и 10 цифр, пробелы/дефисы/скобки допускаются
-    [Required, RegularExpression(@"^\+90[\s\-()]*(\d[\s\-()]*){10}$", ErrorMessage = "Enter a Turkish phone number in the format +90 5XX XXX XX XX")]
+    [Required, RegularExpression(ProfileValidation.TurkishPhonePattern, ErrorMessage = ProfileValidation.TurkishPhoneMessage)]
     public string PhoneNumber { get; set; } = string.Empty;
 
     // ISO-дата "YYYY-MM-DD"; возраст проверяется в контроллере

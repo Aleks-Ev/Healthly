@@ -17,6 +17,7 @@ public record DocumentAnalysisResponse(
     bool IsMock,
     DateTime AnalyzedAt,
     DateTime? ConfirmedAt,             // null — черновик; иначе показатели подтверждены и сохранены в TestResults
+    string? PatientDataNote,           // в профиле нет даты рождения/пола — нормы по возрасту/полу не применены (показать подсказку)
     string Disclaimer);
 
 // POST /api/documents/{id}/analysis/confirm — показатели, сверенные человеком с бланком (можно исправить и удалить лишние).

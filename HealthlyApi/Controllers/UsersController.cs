@@ -75,6 +75,10 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>Create a user with any role (Admin)</summary>
+    /// <remarks>
+    /// For a <c>Patient</c>, <c>dateOfBirth</c> (age 18–120) and <c>gender</c> are required: the reference norms of lab
+    /// tests depend on them. <c>phoneNumber</c> is a Turkish number (+90 and 10 digits); <c>city</c> is one of the testing cities.
+    /// </remarks>
     /// <response code="201">User created.</response>
     /// <response code="400">Validation failed; see <c>errors</c>.</response>
     /// <response code="409">A user with this email already exists.</response>
@@ -85,6 +89,23 @@ public class UsersController : ControllerBase
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<UserResponse>> CreateUser(CreateUserRequest request)
     {
+        // У пациента по полу и возрасту выбираются нормы анализов — без них аккаунт создавать нельзя
+        if (request.Role == Roles.Patient)
+        {
+            if (request.DateOfBirth == null)
+            {
+                ModelState.AddModelError(nameof(CreateUserRequest.DateOfBirth), "Date of birth is required for a patient");
+            }
+            if (string.IsNullOrWhiteSpace(request.Gender))
+            {
+                ModelState.AddModelError(nameof(CreateUserRequest.Gender), "Gender is required for a patient");
+            }
+            if (!ModelState.IsValid)
+            {
+                return ValidationProblem(ModelState);
+            }
+        }
+
         var email = UserMappings.NormalizeEmail(request.Email);
 
         if (await _context.Users.AnyAsync(u => u.Email == email))
@@ -100,6 +121,9 @@ public class UsersController : ControllerBase
             Height = request.Height,
             Weight = request.Weight,
             Gender = request.Gender?.Trim() ?? string.Empty,
+            PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? string.Empty : UserMappings.NormalizePhone(request.PhoneNumber),
+            DateOfBirth = request.DateOfBirth,
+            City = request.City ?? string.Empty,
         };
         user.PasswordHash = _passwords.Hash(user, request.Password);
 
@@ -114,6 +138,8 @@ public class UsersController : ControllerBase
     /// Full update (send all fields). Allowed for the user themselves and Admin.
     /// <c>role</c> and <c>password</c> can only be changed by Admin; send <c>null</c> to keep them.
     /// Changing the password ends all of the user's sessions (their refresh tokens stop working).
+    /// <c>phoneNumber</c>, <c>dateOfBirth</c> and <c>city</c>: <c>null</c> (or omitted) keeps the current value;
+    /// an empty string clears the phone or city. The date of birth and gender pick the reference norms of lab tests.
     /// </remarks>
     /// <response code="200">The updated user.</response>
     /// <response code="400">Validation failed; see <c>errors</c>.</response>
@@ -159,6 +185,20 @@ public class UsersController : ControllerBase
         user.Height = request.Height;
         user.Weight = request.Weight;
         user.Gender = request.Gender?.Trim() ?? string.Empty;
+
+        // null — не менять (старые клиенты эти поля не присылают); "" у телефона и города — очистить
+        if (request.PhoneNumber != null)
+        {
+            user.PhoneNumber = request.PhoneNumber.Trim().Length == 0 ? string.Empty : UserMappings.NormalizePhone(request.PhoneNumber);
+        }
+        if (request.DateOfBirth != null)
+        {
+            user.DateOfBirth = request.DateOfBirth;
+        }
+        if (request.City != null)
+        {
+            user.City = request.City;
+        }
 
         if (request.Role != null)
         {

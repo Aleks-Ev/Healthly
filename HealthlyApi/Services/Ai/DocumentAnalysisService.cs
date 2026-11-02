@@ -185,7 +185,29 @@ public partial class DocumentAnalysisService
             stored.IsMock,
             stored.AnalyzedAt,
             stored.ConfirmedAt,
+            GetPatientDataNote(patient),
             Disclaimer);
+    }
+
+    // Без даты рождения возраст неизвестен, без пола (или с "Other") раздельные нормы для женщин и мужчин не подходят —
+    // тогда для таких показателей берётся диапазон из бланка. Подсказываем заполнить профиль. null — всё есть
+    public static string? GetPatientDataNote(User patient)
+    {
+        var hasSex = patient.Gender is Genders.Female or Genders.Male;
+        if (patient.DateOfBirth != null && hasSex)
+        {
+            return null;
+        }
+
+        var missing = (patient.DateOfBirth == null, hasSex) switch
+        {
+            (true, false) => "date of birth and sex",
+            (true, true) => "date of birth",
+            _ => "sex",
+        };
+        return patient.Gender == Genders.Other && patient.DateOfBirth != null
+            ? "Sex-specific reference ranges (for example hemoglobin or creatinine) are not applied for gender \"Other\"; the ranges printed on the report are used for those tests."
+            : $"The {missing} is missing in the profile, so age- and sex-specific reference ranges could not be applied to every test. Add it in the profile to get a more accurate evaluation.";
     }
 
     // Значение, прочитанное с низкой уверенностью (вероятная ошибка OCR) — клиент просит сверить его с бланком

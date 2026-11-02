@@ -338,11 +338,17 @@ A wrong current password returns **`400`** with `errors.CurrentPassword` — not
 A full update: send all fields, even unchanged ones.
 
 ```json
-{ "email": "patient@healthly.com", "fullName": "Elif Kaya", "height": 166, "weight": 59.5, "gender": "Female", "role": null, "password": null }
+{ "email": "patient@healthly.com", "fullName": "Elif Kaya", "height": 166, "weight": 59.5, "gender": "Female",
+  "phoneNumber": "+90 532 111 22 33", "dateOfBirth": "1992-04-18", "city": "Istanbul", "role": null, "password": null }
 ```
 
 `height` is 30–300 cm, `weight` is 1–500 kg, both optional. A patient must send `role: null` and `password: null`;
-anything else returns `403`. `phoneNumber`, `dateOfBirth` and `city` are set at registration and cannot be edited yet.
+anything else returns `403`. `gender` is `Female`, `Male`, `Other` or empty.
+
+`phoneNumber` (+90 and 10 digits), `dateOfBirth` (`YYYY-MM-DD`, age 18–120) and `city` (a testing city) can be edited:
+**`null` or omitted keeps the current value** (older app versions that do not send them will not erase them); an empty
+string clears the phone or city. **Ask users without a date of birth or gender to add them** — the reference ranges of
+lab results depend on them (the AI analysis returns `patientDataNote` when they are missing).
 
 ### Health report — `GET /api/users/{id}/report`
 
@@ -492,6 +498,8 @@ highlight it and ask the user to check it against the paper report before saving
 - `suggestedSpecialists` — doctors for the out-of-range indicators; empty when everything is normal.
 - `anonymizedText` — the text that was sent to the AI after personal data was masked; you don't need to show it.
 - **Always show `disclaimer`** next to the AI summary.
+- **`patientDataNote`** (string or `null`): the profile has no date of birth or sex (or sex is `Other`), so age- or
+  sex-specific ranges were not applied to every test. Show it above the results with a link to edit the profile.
 - **Draft → confirm.** The analysis is saved as a draft (`confirmedAt: null`). Calling `analyze` again returns the saved
   draft instantly, without a new AI request; `POST /analyze?force=true` reads the report again (uses the AI quota) and
   resets the confirmation. `GET /api/documents/{id}/analysis` loads it when the screen opens (`404` — not analyzed yet).
@@ -541,7 +549,7 @@ and on every point of `GET /api/users/{id}/trends`. Show critical values in red 
 | `GET` | `/api/documents/{id}` · `/file` | ✅ | ✅ | Any document |
 | `PUT` | `/api/documents/{id}/status` | ✅ | ✅ | **Moderation**: change document status |
 | `POST` | `/api/documents/{id}/results` · `PUT/DELETE /api/results/{id}` | ✅ | ✅ | Enter / correct a patient's results |
-| `POST` | `/api/users` | ❌ | ✅ | Create a user with any role |
+| `POST` | `/api/users` | ❌ | ✅ | Create a user with any role (a `Patient` needs `dateOfBirth` and `gender`) |
 | `PUT` | `/api/users/{id}` | ❌ (own only) | ✅ | Edit any user, incl. `role` and `password` |
 | `DELETE` | `/api/users/{id}` | ❌ | ✅ | Delete a user with all their documents (not yourself) |
 | `DELETE` | `/api/documents/{id}` | ❌ | ✅ | Delete any document |

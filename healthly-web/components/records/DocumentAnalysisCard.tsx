@@ -223,6 +223,10 @@ function AnalysisView({
         </p>
       )}
 
+      {analysis.patientDataNote && (
+        <p className="text-sm rounded-2xl bg-amber-50 text-amber-800 px-4 py-3">{analysis.patientDataNote}</p>
+      )}
+
       {!isConfirmed && <CriticalBanner items={criticalItems} />}
 
       {!isConfirmed && (

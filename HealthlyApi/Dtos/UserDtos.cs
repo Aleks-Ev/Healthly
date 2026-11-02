@@ -38,8 +38,21 @@ public class CreateUserRequest
     [Range(1, 500)]
     public double? Weight { get; set; } // кг
 
-    [MaxLength(50)]
+    // Для пациента пол и дата рождения обязательны (проверяет контроллер): по ним выбираются нормы анализов
+    [AllowedValues(Genders.Female, Genders.Male, Genders.Other, "", null, ErrorMessage = "Select Female, Male or Other")]
     public string? Gender { get; set; }
+
+    [RegularExpression(ProfileValidation.TurkishPhonePattern, ErrorMessage = ProfileValidation.TurkishPhoneMessage)]
+    public string? PhoneNumber { get; set; }
+
+    [AdultDateOfBirth]
+    public DateOnly? DateOfBirth { get; set; } // "YYYY-MM-DD"
+
+    [AllowedValues(
+        TestingCities.Istanbul, TestingCities.Ankara, TestingCities.Izmir, TestingCities.Antalya,
+        TestingCities.Bursa, TestingCities.Adana, TestingCities.Gaziantep, TestingCities.Konya, "", null,
+        ErrorMessage = "Select a city where you will be testing")]
+    public string? City { get; set; }
 }
 
 // PUT /api/users/{id} — полное обновление профиля.
@@ -58,8 +71,22 @@ public class UpdateUserRequest
     [Range(1, 500)]
     public double? Weight { get; set; }
 
-    [MaxLength(50)]
+    [AllowedValues(Genders.Female, Genders.Male, Genders.Other, "", null, ErrorMessage = "Select Female, Male or Other")]
     public string? Gender { get; set; }
+
+    // Телефон, дата рождения, город: null — не менять (старые клиенты их не присылают и не должны стереть);
+    // пустая строка у телефона и города — очистить
+    [RegularExpression(ProfileValidation.TurkishPhonePattern, ErrorMessage = ProfileValidation.TurkishPhoneMessage)]
+    public string? PhoneNumber { get; set; }
+
+    [AdultDateOfBirth]
+    public DateOnly? DateOfBirth { get; set; }
+
+    [AllowedValues(
+        TestingCities.Istanbul, TestingCities.Ankara, TestingCities.Izmir, TestingCities.Antalya,
+        TestingCities.Bursa, TestingCities.Adana, TestingCities.Gaziantep, TestingCities.Konya, "", null,
+        ErrorMessage = "Select a city where you will be testing")]
+    public string? City { get; set; }
 
     [AllowedValues(Roles.Patient, Roles.Doctor, Roles.Admin, null)]
     public string? Role { get; set; }
