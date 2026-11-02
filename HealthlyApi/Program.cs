@@ -3,6 +3,7 @@ using HealthlyApi.Middleware;
 using HealthlyApi.OpenApi;
 using HealthlyApi.Services;
 using HealthlyApi.Services.Ai;
+using HealthlyApi.Services.Ai.Ocr;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -44,9 +45,34 @@ builder.Services.AddScoped<RefreshTokenService>();
 builder.Services.AddSingleton<PasswordService>();
 builder.Services.AddSingleton<FileStorageService>();
 
-// ИИ-анализ документов. Сейчас — заглушка; для реального OCR + LLM достаточно зарегистрировать здесь
-// другую реализацию IAiDocumentProcessor (ключи API — в user-secrets, как Jwt:Key). Остальной код не меняется.
-builder.Services.AddScoped<IAiDocumentProcessor, MockAiDocumentProcessor>();
+// ИИ-анализ документов: Gemini (основной) → Groq (резервный), переключение — FallbackAiDocumentProcessor.
+// Ключи — в user-secrets (Ai:Gemini:ApiKey, Ai:Groq:ApiKey), в Docker — GEMINI_API_KEY / GROQ_API_KEY в .env.
+// Используются только провайдеры с ключом; без ключей остаётся заглушка MockAiDocumentProcessor,
+// чтобы проект запускался и без доступа к внешнему ИИ.
+builder.Services.Configure<AiOptions>(builder.Configuration.GetSection("Ai"));
+// Текст документа — локально: PDF через PdfPig, фото и сканы через Tesseract (Ocr:TesseractPath), см. DocumentTextExtractor
+builder.Services.Configure<OcrOptions>(builder.Configuration.GetSection("Ocr"));
+builder.Services.AddSingleton<IOcrEngine, TesseractCliOcrEngine>();
+builder.Services.AddScoped<DocumentTextExtractor>();
+var aiOptions = builder.Configuration.GetSection("Ai").Get<AiOptions>() ?? new AiOptions();
+var aiTimeout = TimeSpan.FromSeconds(aiOptions.TimeoutSeconds);
+builder.Services.AddHttpClient<GeminiAiDocumentProcessor>(client => client.Timeout = aiTimeout);
+builder.Services.AddHttpClient<GroqAiDocumentProcessor>(client => client.Timeout = aiTimeout);
+builder.Services.AddScoped<IAiDocumentProcessor>(services =>
+{
+    var providers = new List<IAiDocumentProcessor>();
+    if (aiOptions.Gemini.IsConfigured)
+    {
+        providers.Add(services.GetRequiredService<GeminiAiDocumentProcessor>());
+    }
+    if (aiOptions.Groq.IsConfigured)
+    {
+        providers.Add(services.GetRequiredService<GroqAiDocumentProcessor>());
+    }
+    return providers.Count == 0
+        ? new MockAiDocumentProcessor()
+        : new FallbackAiDocumentProcessor(providers, services.GetRequiredService<ILogger<FallbackAiDocumentProcessor>>());
+});
 builder.Services.AddScoped<DocumentAnalysisService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

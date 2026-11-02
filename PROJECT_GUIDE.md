@@ -222,6 +222,63 @@ DTO вместо сущностей (наружу не уходит `PasswordHas
 - **Справочник норм `ReferenceMedicalValues`** (миграция `AddReferenceMedicalValues`): глюкоза, холестерин,
   гемоглобин, лейкоциты — границы, единицы, категория и врач. Заполняется миграцией (`HasData`), поэтому есть
   в любой среде.
+
+### ✅ Этап 7 — Реальный ИИ: Gemini + Groq с переключением (Fallback)
+- **`GeminiAiDocumentProcessor`** (основной, Google AI Studio, Free Tier) и **`GroqAiDocumentProcessor`** (резервный,
+  Groq, Free Tier) — общий конвейер в базовом классе `LlmDocumentProcessor`, отличается только HTTP-запрос.
+- **`FallbackAiDocumentProcessor`** — декоратор: Gemini → при сбое (сеть, таймаут, 429 «кончились лимиты», 5xx,
+  неверный JSON) сразу Groq → если не ответил никто, `503`. Подробно — раздел 5.14.
+- **`DocumentTextExtractor`** — текст PDF читается локально библиотекой **PdfPig**; наружу уходит только текст после
+  `PiiAnonymizer`, сам файл — никогда. (Фото и сканы — см. Этап 7.1.)
+- Ключи — `Ai:Gemini:ApiKey`, `Ai:Groq:ApiKey` в user-secrets (в Docker — `GEMINI_API_KEY` / `GROQ_API_KEY` в `.env`).
+  Без ключей работает прежняя заглушка, проект запускается у всех.
+- Тесты `HealthlyApi.Tests/AiDocumentProcessorTests.cs`: настоящий PDF с ФИО и телефоном, подменённый HTTP —
+  проверяют переключение 429 → Groq, `503`, `422` и что в запросах к обоим провайдерам нет персональных данных.
+- Живая проверка с настоящими ключами показала, что модели по умолчанию устарели (`gemini-2.5-flash` закрыт для новых
+  пользователей, `llama-3.3-70b-versatile` удалён из Groq), а `gemini-3.8-flash` на бесплатном тарифе перегружен.
+  Сейчас: **`gemini-3.5-flash`** (ответ ~10 с) и **`openai/gpt-oss-120b`**. Модели меняются в `appsettings.json` без
+  пересборки кода.
+
+### ✅ Этап 7.1 — Фото и сканы: локальный OCR (Tesseract)
+- **Фото JPG/PNG и PDF-сканы** теперь анализируются. Распознавание — программой **Tesseract** на нашем сервере
+  (`Services/Ai/Ocr/`), картинка наружу не уходит. Решение «C# + Tesseract через командную строку» вместо отдельного
+  Python-сервиса: один стек, один Docker-образ, необезличенные картинки не ходят между сервисами.
+- **`ImagePreprocessor`** (SkiaSharp): поворот по EXIF, оттенки серого, масштаб до ~2000 px. На тестовом фото без
+  предобработки «6.3» читалось как «693».
+- **PDF-сканы**: страницы без текстового слоя рисуются в картинку 300 DPI (**PDFtoImage**/PDFium) и идут в OCR;
+  страницы с текстом читаются как раньше — смешанные PDF тоже работают.
+- **Контроль качества**: средняя уверенность Tesseract ниже `Ocr:MinConfidence` (55) → `422` «переснимите фото».
+  Слова с уверенностью ниже 70 запоминаются, и **код** (не ИИ) снижает `confidence` показателя до 0.4, если в его
+  значении или единице есть такое слово. Пример из живой проверки: «7.1» прочитано как «7а» (уверенность 43) →
+  `confidence: 0.4`, `isAbnormal: null` — клиент просит пользователя сверить значение с бланком.
+- **`PiiAnonymizer` устойчив к ошибкам OCR**: нечёткое сравнение с ФИО из базы — «E1if», «Kava», «Ayse Yilmaz»
+  (вместо «Ayşe Yılmaz»), «Yılrnaz», «Смирн0ва» маскируются (расстояние Левенштейна + похожие символы 1/l/i, 0/o, rn/m).
+- Docker: Tesseract с eng/rus/tur ставится в образ API (`HealthlyApi/Dockerfile`). Windows: `TEAM_GUIDE.md`.
+- Тесты: настоящий Tesseract на нарисованном бланке и PDF-скане (пропускаются, если Tesseract не установлен),
+  нечёткие имена, порог качества, «OCR запускается один раз при переключении Gemini → Groq».
+
+### ✅ Этап 7.2 — Проверка на образцах бланков и исправления оценки
+Прогон 4 публичных образцов (GNU Solidario, Flabs, Quest — `test results/`, папка в `.gitignore`) через настоящий API
+показал ошибки, которых не было видно на нарисованном бланке. Что исправлено (до → после):
+- **Пересчёт единиц** (`Services/UnitConverter.cs`). Раньше значение сравнивалось с нормой справочника без учёта
+  единиц: Hemoglobin `12 g/dL` против `120-160 g/L` — «отклонение», хотя это норма. Теперь g/dL ↔ g/L, mg/dL ↔ mmol/L
+  (глюкоза, холестерин — через молярную массу), /мм³ ↔ 10⁹/л. Норма показывается в единицах бланка (`12-16 g/dL`).
+  Неизвестная единица → диапазон из бланка. Итог: 4 ложных «отклонения» и ложные направления к врачам исчезли.
+- **Диапазоны с единицами и словами**: `7-25 mg/dL`, `6-22 (calc)`, `>OR= 60`, `Up to 15` (`ReferenceRangeEvaluator`).
+  Раньше у всех 17 показателей бланка Quest оценка была «не определена».
+- **Потерянная десятичная точка** (OCR): «Albumin 48» при норме 3.6-5.1 → не «отклонение», а «сверьте с бланком»
+  (`isAbnormal: null`, `confidence: 0.4`). Точка, которая могла потеряться в самом диапазоне (`31.5-345`), — то же,
+  если от этого зависит вывод. Раньше MCHC 37.5 по такому диапазону выходил «в норме» — пропуск отклонения.
+- **Кириллица на латинских бланках**: первый проход OCR — `eng+tur`, русский — только вторым проходом, если первый
+  неуверенный. Было: «Name» → «Мате», «pg» → «Р9», десятки слов; стало: 0. Русский бланк распознаётся (тест).
+- **Обезличивание**: идентификаторы после меток (`Patient ID`, `Report ID`, `Hasta No`, `TC Kimlik No`, СНИЛС и их
+  искажения OCR «Patient 10», «Report I1D»), 11-значный TC Kimlik без метки, телефоны любой страны (`+91 …`).
+- **Снижение confidence только по значению**: раньше одна неуверенная «/cumm» снижала его у всех показателей с ней.
+- **Имена показателей**: имя из справочника в ответе (модель иногда писала «Hemoglobin (g/L)»).
+- Осталось (ограничения OCR, честно помечаются низкой confidence или требуют проверки пользователем): диапазон, в
+  котором потерялись обе точки (`4.5-5.5` → `45-55`), искажённые единицы, значения в декоративных кружках
+  (бланк «lab result sample 2» — часть значений не читается). Gemini на бесплатном тарифе часто отвечает 503 —
+  тогда отвечает Groq (fallback штатно сработал в половине запросов).
 - **Первый тестовый проект** `HealthlyApi.Tests` (xUnit, 21 тест на `PiiAnonymizer`), запуск — `dotnet test` в корне.
   Заодно явно указана версия EF Core в `HealthlyApi.csproj` (иначе тесты получали бы EF 10.0.4 вместо 10.0.13).
 
@@ -234,7 +291,8 @@ DTO вместо сущностей (наружу не уходит `PasswordHas
 ### 💡 Идеи на будущее (по желанию, для диплома)
 - [ ] Секции `#analyses` и `#faq` на лендинге (ссылки в Navbar уже есть); действие для иконки Search.
 - [ ] Автотесты: расширить `HealthlyApi.Tests` (`ReferenceRangeEvaluator`, `RefreshTokenService`), Playwright для фронтенда.
-- [ ] Реальный ИИ: реализация `IAiDocumentProcessor` (OCR + LLM), сохранение результата анализа в документ, экран анализа на фронтенде.
+- [x] Реальный ИИ: реализация `IAiDocumentProcessor` (OCR + LLM) — Этапы 7–7.2.
+- [ ] Сохранение результата анализа в документ, экран анализа на фронтенде (кнопка «Analyze», подсветка `confidence` ≤ 0.4).
 - [ ] Экран «мои сессии» с выходом на отдельных устройствах; «забыли пароль» (сброс по email).
 
 ---
@@ -395,6 +453,8 @@ JWT (JSON Web Token) — строка из трёх частей `header.payload
 | `ConnectionStrings:DefaultConnection` | строка подключения к PostgreSQL (с паролем) |
 | `Jwt:Key` | секретный ключ подписи токенов (≥ 32 символов) |
 | `SeedAdmin:Email`, `SeedAdmin:Password` | администратор, создаваемый при запуске |
+| `Ai:Gemini:ApiKey`, `Ai:Groq:ApiKey` | ключи ИИ-провайдеров (необязательны: без них — заглушка), раздел 5.14 |
+| `Ocr:TesseractPath`, `Ocr:TessdataPath` | где Tesseract и языки на Windows (не секрет, но путь свой у каждого ПК) |
 
 Посмотреть: `dotnet user-secrets list` (в папке `HealthlyApi`).
 
@@ -447,12 +507,42 @@ POST /api/documents/{id}/analyze
   → DocumentAnalysisService:
        открывает файл + загружает справочник норм ReferenceMedicalValues
        → IAiDocumentProcessor.AnalyzeAsync(файл, контекст пациента, нормы)
-            [заглушка]  «OCR» → сырой текст бланка (с ФИО, телефоном, датами)
-                        → PiiAnonymizer.Anonymize(текст, [ФИО пациента])  ← в «модель» уходит только это
-                        → показатели + резюме + рекомендации
+            FallbackAiDocumentProcessor: по очереди Gemini → Groq (только те, у кого есть ключ)
+              LlmDocumentProcessor (общий для обоих):
+                DocumentTextExtractor (локально, Scoped — OCR один раз на запрос):
+                  PDF-страница с текстом → PdfPig
+                  PDF-страница-скан      → PDFtoImage 300 DPI → Tesseract
+                  фото JPG/PNG           → ImagePreprocessor → Tesseract
+                  нечитаемо (размыто, битый файл) → 422; Tesseract недоступен → 503
+                → PiiAnonymizer.Anonymize(текст, [ФИО пациента])      ← в модель уходит только это
+                → промпт: «извлеки показатели и резюме, норму НЕ оценивай» + названия из справочника
+                → HTTP-запрос к модели → ответ JSON → проверка и разбор (ParseResponse)
+              сбой провайдера (AiProviderException) → сразу следующий; не ответил никто → 503
+            [без ключей]  MockAiDocumentProcessor — заглушка, как раньше
        → для каждого показателя: значение vs норма из БД → isAbnormal, категория, врач
   → ответ: показатели, число отклонений, резюме, рекомендации, к каким врачам обратиться, дисклеймер
 ```
+- **Fallback (отказоустойчивость).** Бесплатные лимиты Gemini заканчиваются (ответ `429 RESOURCE_EXHAUSTED`),
+  сеть может упасть. `FallbackAiDocumentProcessor` — декоратор: реализует тот же `IAiDocumentProcessor` и оборачивает
+  список процессоров. Переключается сразу, без пауз и повторов, только при `AiProviderException` (сеть, таймаут
+  `Ai:TimeoutSeconds`, HTTP-ошибка, неверный JSON). Ошибки, которые другой провайдер не исправит (в документе нет
+  текста — `422`, клиент отменил запрос), уходят наверх сразу. Поле `model` в ответе показывает, кто ответил:
+  `gemini:gemini-3.5-flash` или `groq:openai/gpt-oss-120b`.
+- **Почему файл не отправляется в Gemini напрямую.** Gemini умеет читать PDF и фото сам, но тогда в Google ушли бы
+  имя и телефон пациента: из картинки `PiiAnonymizer` ничего не вырежет. Поэтому текст извлекается у нас (PdfPig или
+  Tesseract), обезличивается и только потом отправляется.
+- **Как вызывается Tesseract.** `tesseract stdin stdout -l eng+rus+tur --psm 6 -c tessedit_create_tsv=1`: картинка
+  идёт через stdin, результат — через stdout, временных файлов с данными пациента на диске нет. Формат TSV даёт
+  уверенность по каждому слову. `--psm 6` («один блок текста») лучше всего сохраняет строки таблицы. Не больше
+  `Ocr:MaxConcurrency` (2) процессов одновременно, таймаут `Ocr:TimeoutSeconds`. Другой движок (PaddleOCR, сервис на
+  Python) подключается новой реализацией `IOcrEngine` в `Program.cs`.
+- **Ошибки OCR и безопасность.** OCR может исказить имя («E1if Kaya») — тогда точное сравнение его пропустит. Поэтому
+  `PiiAnonymizer` сравнивает слова с ФИО из базы нечётко. Неуверенные слова передаются отдельным списком, а не
+  пометкой в тексте: пометка внутри «+90 532…» сломала бы поиск телефона.
+- **Ответ модели не доверяем.** Просим JSON (`responseMimeType` у Gemini, `response_format` у Groq), но всё равно
+  проверяем: показатели без названия/значения отбрасываем, число превращаем в строку, `confidence` ограничиваем 0..1,
+  обёртку ```` ```json ```` снимаем. Мусор вместо JSON = сбой провайдера → следующий.
+- **Ключ Gemini — в заголовке** `x-goog-api-key`, а не в адресе (`?key=`), иначе он попал бы в логи HttpClient.
 - **Почему интерфейс.** Контроллер и сервис знают только `IAiDocumentProcessor`. Заглушка, Tesseract + Claude,
   облачный OCR — любая реализация подключается одной строкой в `Program.cs` (`AddScoped<IAiDocumentProcessor, ...>`),
   остальной код и формат ответа не меняются. Это принцип инверсии зависимостей (буква D в SOLID).
@@ -556,7 +646,9 @@ Healthly/
 │   ├── Models/                   ← User, MedicalDocument, TestResult, RefreshToken, ReferenceMedicalValue, Roles…
 │   ├── Services/                 ← TokenService, RefreshTokenService, RefreshTokenCookie, PasswordService,
 │   │                                FileStorageService, ReferenceRangeEvaluator, PiiAnonymizer
-│   │   └── Ai/                   ← IAiDocumentProcessor, MockAiDocumentProcessor, DocumentAnalysisService
+│   │   └── Ai/                   ← IAiDocumentProcessor, DocumentAnalysisService, Mock / Gemini / Groq / Fallback,
+│   │       │                       DocumentTextExtractor (PdfPig + OCR), LlmDocumentProcessor
+│   │       └── Ocr/              ← IOcrEngine, TesseractCliOcrEngine, ImagePreprocessor, OcrOptions
 │   ├── Middleware/               ← ExceptionHandlingMiddleware (ошибки → ProblemDetails), ProblemDetailsContentTypeFilter
 │   ├── Data/                     ← AppDbContext, DbInitializer, ReferenceMedicalValueSeed
 │   ├── OpenApi/                  ← BearerSecurityTransformer

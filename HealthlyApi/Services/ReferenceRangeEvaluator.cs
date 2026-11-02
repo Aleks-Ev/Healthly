@@ -5,14 +5,27 @@ namespace HealthlyApi.Services;
 
 // Определяет, выходит ли значение показателя за референсный диапазон.
 // Поддерживаемые форматы диапазона: "120-160", "120 – 160", "<5", "<=5", "≤5", ">1.2", ">=1.2", "≥1.2".
+// После диапазона может идти текст — единицы или пометка, как печатают лаборатории: "7-25 mg/dL", "6-22 (calc)".
+// Также понимаются ">OR= 60" (≥ 60, бланки Quest) и "Up to 15" (≤ 15).
 // Возвращает null, если значение или диапазон не числовые (тогда флаг ставится вручную).
 public static partial class ReferenceRangeEvaluator
 {
-    [GeneratedRegex(@"^\s*(-?\d+(?:[.,]\d+)?)\s*[-–—]\s*(-?\d+(?:[.,]\d+)?)\s*$")]
+    [GeneratedRegex(@"^\s*(-?\d+(?:[.,]\d+)?)\s*[-–—]\s*(-?\d+(?:[.,]\d+)?)(?:\s*[^\d\s.,].*)?\s*$")]
     private static partial Regex BetweenRegex();
 
-    [GeneratedRegex(@"^\s*(<=|>=|≤|≥|<|>)\s*(-?\d+(?:[.,]\d+)?)\s*$")]
+    [GeneratedRegex(@"^\s*(<=|>=|≤|≥|<|>)\s*(-?\d+(?:[.,]\d+)?)(?:\s*[^\d\s.,].*)?\s*$")]
     private static partial Regex BoundRegex();
+
+    // ">OR= 60", "> or = 60" → ">=60"
+    [GeneratedRegex(@"([<>])\s*or\s*=", RegexOptions.IgnoreCase)]
+    private static partial Regex OrEqualRegex();
+
+    // "Up to 15", "Upto 15" → "<=15"
+    [GeneratedRegex(@"^\s*up\s*to\s*", RegexOptions.IgnoreCase)]
+    private static partial Regex UpToRegex();
+
+    private static string Normalize(string range) =>
+        UpToRegex().Replace(OrEqualRegex().Replace(range, "$1="), "<=");
 
     public static bool? IsAbnormal(string value, string? referenceRange)
     {
@@ -21,6 +34,7 @@ public static partial class ReferenceRangeEvaluator
             return null;
         }
 
+        referenceRange = Normalize(referenceRange);
         var between = BetweenRegex().Match(referenceRange);
         if (between.Success
             && TryParse(between.Groups[1].Value, out var min)
@@ -52,6 +66,7 @@ public static partial class ReferenceRangeEvaluator
             return (null, null);
         }
 
+        referenceRange = Normalize(referenceRange);
         var between = BetweenRegex().Match(referenceRange);
         if (between.Success
             && TryParse(between.Groups[1].Value, out var min)

@@ -73,6 +73,37 @@ dotnet user-secrets set "Jwt:Key" "<любая случайная строка, 
 
 Проверить: `dotnet user-secrets list`. Без `Jwt:Key` API не запустится и напишет, какую команду выполнить.
 
+Необязательно — ключи ИИ для `POST /api/documents/{id}/analyze` (без них работает заглушка `isMock: true`).
+Оба бесплатные: Gemini — https://aistudio.google.com/apikey, Groq — https://console.groq.com/keys.
+
+```bash
+dotnet user-secrets set "Ai:Gemini:ApiKey" "ВСТАВЬТЕ_КЛЮЧ_GEMINI"
+dotnet user-secrets set "Ai:Groq:ApiKey" "ВСТАВЬТЕ_КЛЮЧ_GROQ"
+```
+
+> ⚠️ Вставляйте ключ **как есть** — без угловых скобок `< >` и лишних кавычек внутри. Ключ Groq начинается с `gsk_`.
+> Если анализ отвечает `503`, причина — в логе API: `Invalid API Key` / `API_KEY_INVALID` — неверный ключ,
+> `model ... does not exist` / `no longer available` — модель выведена из обращения, поменяйте `Ai:Gemini:Model` /
+> `Ai:Groq:Model` в `appsettings.json` (список моделей — в консоли Google AI Studio / Groq).
+
+В Docker — те же ключи в `.env`: `GEMINI_API_KEY=...`, `GROQ_API_KEY=...`.
+
+Необязательно — **Tesseract** для анализа фото и сканов (в Docker уже установлен; без него фото получают `503`,
+PDF с текстом работают). На Windows, в PowerShell:
+
+```powershell
+winget install UB-Mannheim.TesseractOCR
+# Русский и турецкий языки — в папку пользователя (в Program Files нужны права администратора)
+$dir = "$env:LOCALAPPDATA\tessdata"; New-Item -ItemType Directory -Force $dir
+foreach ($l in 'eng','rus','tur','osd') { Invoke-WebRequest "https://github.com/tesseract-ocr/tessdata/raw/main/$l.traineddata" -OutFile "$dir\$l.traineddata" }
+cd HealthlyApi
+dotnet user-secrets set "Ocr:TesseractPath" "C:\Program Files\Tesseract-OCR\tesseract.exe"
+dotnet user-secrets set "Ocr:TessdataPath" "$dir"
+```
+
+Проверка: `& "C:\Program Files\Tesseract-OCR\tesseract.exe" --tessdata-dir "$env:LOCALAPPDATA\tessdata" --list-langs`
+— в списке должны быть `eng`, `rus`, `tur`. Тесты OCR (`dotnet test`) находят Tesseract сами; если его нет — пропускаются.
+
 **3. Создайте таблицы:**
 
 ```bash

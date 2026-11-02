@@ -47,6 +47,9 @@ services:
       DemoData__ResetHistory: ${DEMO_RESET_HISTORY:-false}
       Cors__Origins__0: ${WEB_ORIGIN:-http://localhost:3000}
       Storage__UploadsPath: /app/uploads
+      # Ключи ИИ (необязательны): без них анализ документов работает как заглушка (isMock: true)
+      Ai__Gemini__ApiKey: ${GEMINI_API_KEY:-}
+      Ai__Groq__ApiKey: ${GROQ_API_KEY:-}
     volumes:
       # Загруженные PDF/фото отчётов переживают пересборку и перезапуск контейнера
       - uploads:/app/uploads
