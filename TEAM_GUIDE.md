@@ -227,7 +227,8 @@ npm run dev        # http://localhost:3000
 | **Android-эмулятор** | `http://10.0.2.2:5097` | `10.0.2.2` — это `localhost` компьютера, на котором запущен эмулятор |
 | **iOS-симулятор** | `http://localhost:5097` | Симулятор использует сеть Mac |
 | **Телефон в той же Wi-Fi** | `http://<IP компьютера>:5097`, например `http://192.168.1.152:5097` | API запущен через Docker или `dotnet run --launch-profile lan`; открыт порт в брандмауэре (ниже) |
-| **Телефон в любой сети** | `https://<id>.ngrok-free.app` | На компьютере с API: `ngrok http 5097`. Адрес меняется при каждом перезапуске ngrok (бесплатный тариф) |
+| **Телефон в любой сети — демо-сервер** | `https://healthilyclub.com` | Компьютер владельца проекта включён и запущен с `--profile tunnel` (раздел 7). Настраивать ничего не нужно — это HTTPS |
+| **Телефон в любой сети — свой API** | `https://<id>.ngrok-free.app` | На компьютере с API: `ngrok http 5097`. Адрес меняется при каждом перезапуске ngrok (бесплатный тариф) |
 
 Храните базовый URL в одной настройке (`--dart-define=API_URL=...` во Flutter, `.env` / `app.config.ts` в React Native),
 чтобы переключаться между вариантами без правки кода.
@@ -271,3 +272,70 @@ New-NetFirewallRule -DisplayName "Healthly API 5097" -Direction Inbound -Protoco
 | `401` от `/api/auth/refresh` | Refresh-токен уже обменян, отозван (выход, смена пароля) или истёк — нужно войти заново |
 | `403` | У роли нет прав или это данные другого пользователя (раздел 3, таблица ролей) |
 | Нет `/scalar` | API запущен не в Development (`ASPNETCORE_ENVIRONMENT=Production` или `API_ENVIRONMENT` в `.env`) |
+| `429 Too Many Requests` | Сработал лимит (вход/регистрация — 20 в минуту с одного IP, ИИ-анализ — 20 в час на пользователя, поиск по Healthly ID — 30 в минуту); подождите `Retry-After` секунд |
+| `healthilyclub.com` не открывается | Компьютер выключен/спит, не запущен Docker или туннель (раздел 7); в Cloudflare → Tunnels статус должен быть `HEALTHY` |
+
+---
+
+## 7. Публичный демо-сервер (healthilyclub.com)
+
+Сайт и API работают **на домашнем компьютере владельца проекта** и доступны из любой сети по
+**https://healthilyclub.com** — для показа куратору/группе и для разработки мобильного приложения на реальном телефоне.
+
+### Как это устроено
+
+```
+Браузер / телефон ──HTTPS──> Cloudflare ──туннель──> cloudflared (контейнер tunnel)
+                                                        └─> web:3000 (Next.js) ──/api/*──> api:8080 (.NET) ──> db
+```
+
+- **Cloudflare Tunnel**: контейнер `cloudflared` сам открывает *исходящее* соединение к Cloudflare. Проброс портов на
+  роутере, «белый» IP и сертификат не нужны — HTTPS выдаёт Cloudflare.
+- **Один адрес для сайта и API**: сервер Next.js проксирует `/api/*` в контейнер API (`API_PROXY_TARGET` в
+  `next.config.ts`), браузер ходит на `/api` того же домена. Поэтому нет CORS, и cookie с refresh-токеном
+  (`SameSite=Strict`, `Secure`) работает. Мобильное приложение: базовый URL `https://healthilyclub.com`.
+- **Production**: нет `/scalar` и демо-аккаунтов с известными паролями; отдельная база в Docker (не ваша локальная
+  `healthly_db`). Первый админ — из `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` в `.env`, остальных (врач, сотрудник
+  лаборатории) он создаёт на странице Users; пациенты регистрируются сами.
+- **Лимиты** (`Services/RateLimiting.cs`): вход и регистрация — 20 в минуту с одного IP (подбор паролей), ИИ-анализ —
+  20 в час на пользователя (квота Gemini/Groq), поиск по Healthly ID — 30 в минуту (перебор кодов). Превышение → `429`.
+
+### Настройка (один раз, делает владелец проекта)
+
+1. **Cloudflare** → <https://one.dash.cloudflare.com> → **Networks → Tunnels → Create a tunnel** → тип
+   **Cloudflared** → имя `healthly-home` → на шаге установки выберите **Docker** и скопируйте **токен** — длинную
+   строку после `--token` (это секрет: не отправляйте его в чат и не коммитьте).
+2. Вставьте токен в `.env` в корне проекта: `CLOUDFLARE_TUNNEL_TOKEN=<токен>`.
+   Остальное в `.env` уже заполнено для демо (`API_ENVIRONMENT=Production`, `WEB_ORIGIN=https://healthilyclub.com`,
+   `PUBLIC_API_URL=/api`, `API_PROXY_TARGET=http://api:8080`, случайные пароль БД и `JWT_KEY`, ключи ИИ, админ).
+3. Остановите `dotnet run` и `npm run dev` (Docker займёт порты 3000 и 5097) и запустите:
+   ```powershell
+   docker compose --profile tunnel up -d --build
+   ```
+4. В Cloudflare в настройках туннеля → **Public Hostname / Published application routes → Add**:
+   Subdomain — пусто, Domain — `healthilyclub.com`, Service — **HTTP**, URL — **`web:3000`**. Сохранить.
+   По желанию ещё один маршрут: Subdomain `www` → тот же `web:3000`.
+   Статус туннеля должен стать **HEALTHY**, через минуту открывайте https://healthilyclub.com.
+
+### Каждый день
+
+| Действие | Команда |
+|---|---|
+| Запустить | `docker compose --profile tunnel up -d` |
+| Обновить после `git pull` | `docker compose --profile tunnel up -d --build` |
+| Логи API / туннеля | `docker compose logs -f api` / `docker compose logs -f tunnel` |
+| Остановить | `docker compose --profile tunnel down` (данные сохраняются) |
+
+Контейнеры перезапускаются сами (`restart: unless-stopped`) после перезагрузки компьютера, если Docker Desktop
+стартует вместе с Windows (Settings → General → *Start Docker Desktop when you sign in*).
+
+### Ограничения
+
+- Сайт работает, **пока компьютер включён и не спит** (Параметры → Система → Питание → «Переводить в спящий режим» —
+  «Никогда» на время показов).
+- Скорость — исходящий канал домашнего интернета; одна загрузка + анализ ≈ 10–20 с.
+- Cloudflare обрывает запрос через **100 с** — если ИИ-анализ дольше (оба провайдера тормозят), будет ошибка 524,
+  просто повторите.
+- **Только тестовые данные.** Хранение пока не зашифровано (PROJECT_GUIDE, «Отложено») — настоящие анализы
+  пациентов сюда не загружать.
+- Нормы — черновик (см. предупреждение в начале файла), на показе так и говорить.

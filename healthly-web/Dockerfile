@@ -16,7 +16,10 @@ COPY . .
 # Адрес API «вшивается» в клиентский JS при сборке (запросы идут из браузера пользователя),
 # поэтому это build-аргумент, а не переменная окружения контейнера
 ARG NEXT_PUBLIC_API_URL=http://localhost:5097/api
+# Пусто — без прокси; http://api:8080 — сервер Next.js проксирует /api/* в контейнер API (один адрес, см. next.config.ts)
+ARG API_PROXY_TARGET=
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    API_PROXY_TARGET=$API_PROXY_TARGET \
     NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using HealthlyApi.Data;
 using HealthlyApi.Dtos;
@@ -196,12 +197,15 @@ public class DocumentsController : ControllerBase
     /// <response code="403">A patient tried to analyze another user's document.</response>
     /// <response code="404">Document not found, or its file is missing from storage.</response>
     /// <response code="422">No text could be read from the document: a blurry or dark photo, a damaged file. The detail says what to do.</response>
+    /// <response code="429">More than 20 analyze requests in an hour by this user; wait for the time in <c>Retry-After</c> (seconds).</response>
     /// <response code="503">All AI providers or the text recognition are unavailable; try again later.</response>
     [HttpPost("{id:int}/analyze")]
+    [EnableRateLimiting(RateLimiting.AiAnalysis)]
     [ProducesResponseType<DocumentAnalysisResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<DocumentAnalysisResponse>> Analyze(int id, CancellationToken cancellationToken, [FromQuery] bool force = false)
     {

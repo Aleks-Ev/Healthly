@@ -8,8 +8,9 @@ namespace HealthlyApi.Data;
 
 // Подготовка базы при запуске API (вызывается из Program.cs):
 // 1. Database:MigrateOnStartup = true → применить миграции (включено в Docker; локально — dotnet ef database update).
-// 2. Только в Development:
-//    - администратор из user-secrets (SeedAdmin:Email / SeedAdmin:Password), если его ещё нет;
+// 2. Во всех окружениях: администратор из SeedAdmin:Email / SeedAdmin:Password (user-secrets, в Docker — .env),
+//    если его ещё нет. Так у публичного демо-сервера (Production, без демо-аккаунтов) появляется первый админ.
+// 3. Только в Development:
 //    - DemoData:Enabled = true → три демо-аккаунта с историей анализов за последние 6 месяцев
 //      (глюкоза, холестерин, гемоглобин), чтобы графики Health Trends сразу показывали динамику.
 //
@@ -66,13 +67,13 @@ public static class DbInitializer
         // Пациентам, зарегистрированным до появления Healthly ID, — выдать код (во всех окружениях)
         await PatientCodes.AssignMissingAsync(context);
 
+        var passwords = services.GetRequiredService<PasswordService>();
+        await SeedAdminFromSecretsAsync(app, context, passwords);
+
         if (!app.Environment.IsDevelopment())
         {
             return;
         }
-
-        var passwords = services.GetRequiredService<PasswordService>();
-        await SeedAdminFromSecretsAsync(app, context, passwords);
 
         if (app.Configuration.GetValue<bool>("DemoData:Enabled"))
         {

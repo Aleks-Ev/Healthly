@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using HealthlyApi.Data;
 using HealthlyApi.Dtos;
@@ -36,10 +37,13 @@ public class AuthController : ControllerBase
     /// <response code="201">Account created; the response contains the access and refresh tokens and the user profile.</response>
     /// <response code="400">Validation failed; see <c>errors</c> for messages per field.</response>
     /// <response code="409">A user with this email already exists.</response>
+    /// <response code="429">Too many attempts from this address; wait for the time in <c>Retry-After</c> (seconds).</response>
     [HttpPost("register")]
+    [EnableRateLimiting(RateLimiting.Auth)]
     [AllowAnonymous]
     [ProducesResponseType<AuthResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request)
     {
@@ -94,10 +98,13 @@ public class AuthController : ControllerBase
     /// <response code="200">Logged in.</response>
     /// <response code="400">Email or password is missing or malformed.</response>
     /// <response code="401">Invalid email or password.</response>
+    /// <response code="429">Too many attempts from this address; wait for the time in <c>Retry-After</c> (seconds).</response>
     [HttpPost("login")]
+    [EnableRateLimiting(RateLimiting.Auth)]
     [AllowAnonymous]
     [ProducesResponseType<AuthResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<AuthResponse>> Login(LoginRequest request)
     {

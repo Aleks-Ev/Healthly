@@ -351,8 +351,30 @@ DTO вместо сущностей (наружу не уходит `PasswordHas
   «History». Значения анализов в журнал не пишутся.
 - Демо (Development): лаборатория «Healthly Partner Lab — Istanbul» и сотрудник `lab@healthly.com` / `Lab123!`.
 - Миграция `AddLaboratoriesAndAudit`. Тесты прав доступа и Healthly ID (`LabAccessTests`), всего 159.
-- На потом (раздел «Отложено», кибербезопасность): ограничение частоты поиска по Healthly ID (защита от перебора),
-  отзыв/перевыпуск кода пациентом, срок действия доступа лаборатории.
+- На потом (раздел «Отложено», кибербезопасность): отзыв/перевыпуск кода пациентом, срок действия доступа
+  лаборатории. (Ограничение частоты поиска по Healthly ID сделано в Этапе 7.7.)
+
+### ✅ Этап 7.7 — Публичный демо-сервер: https://healthilyclub.com
+Сайт и API работают на домашнем компьютере, доступ из любой сети — для показа куратору/группе и разработки мобилки.
+Инструкция — `TEAM_GUIDE.md`, раздел 7.
+- **Cloudflare Tunnel** (контейнер `tunnel` в `docker-compose.yml`, запуск `--profile tunnel`): `cloudflared` сам
+  открывает исходящее соединение к Cloudflare — без проброса портов, «белого» IP и своего сертификата (HTTPS от
+  Cloudflare). Домен `healthilyclub.com` (Cloudflare Registrar, 03.11.2026).
+- **Один адрес для сайта и API**: Next.js проксирует `/api/*` в контейнер API (`rewrites` в `next.config.ts`,
+  build-аргумент `API_PROXY_TARGET`), браузер ходит на `/api` своего домена (`PUBLIC_API_URL=/api`). Зачем: cookie с
+  refresh-токеном `SameSite=Strict` не отправилась бы на другой домен, и не нужен CORS. Таймаут прокси поднят до 120 с
+  (по умолчанию 30 с — ИИ-анализ с переключением провайдеров может не уложиться).
+- **Настоящий IP и https за прокси**: `Proxy:TrustForwardedHeaders` → `UseForwardedHeaders` берёт IP клиента из
+  `X-Forwarded-For` и схему из `X-Forwarded-Proto`; поэтому cookie получает флаг `Secure`, а лимиты считаются по
+  реальному адресу, а не по адресу прокси.
+- **Лимиты частоты** (`Services/RateLimiting.cs`, встроенный `RateLimiter` ASP.NET Core): вход и регистрация —
+  20/мин с IP, ИИ-анализ — 20/час на пользователя, поиск по Healthly ID — 30/мин на сотрудника. Превышение → `429`
+  ProblemDetails + `Retry-After`. Лимиты с запасом: группа студентов за одним IP университета не упрётся.
+- **Production без демо-аккаунтов**: их пароли записаны в репозитории, в интернете по ним вошёл бы кто угодно.
+  Первый админ теперь создаётся из `SeedAdmin:*` во **всех** окружениях (в Docker — `SEED_ADMIN_EMAIL/PASSWORD`).
+- Проверено в Docker (отдельные порты, отдельная база, всё удалено после): сайт и `/lab` → 200, `/scalar` → 404,
+  демо-пароль → 401, cookie `secure; samesite=strict; httponly`, регистрация, загрузка, анализ фото через Tesseract в
+  контейнере + Gemini за 12 с через прокси, скачивание файла, 21-й неверный вход с одного IP → 429, с другого — нет.
 
 ### 🗺 Целевая модель работы (согласовано 02.11.2026)
 Компания договаривается с лабораториями; пользователь раз в год бесплатно сдаёт там полный спектр анализов.
@@ -575,7 +597,7 @@ JWT (JSON Web Token) — строка из трёх частей `header.payload
 |---|---|
 | `ConnectionStrings:DefaultConnection` | строка подключения к PostgreSQL (с паролем) |
 | `Jwt:Key` | секретный ключ подписи токенов (≥ 32 символов) |
-| `SeedAdmin:Email`, `SeedAdmin:Password` | администратор, создаваемый при запуске |
+| `SeedAdmin:Email`, `SeedAdmin:Password` | администратор, создаваемый при запуске (во всех окружениях; в Docker — `SEED_ADMIN_*` в `.env`) |
 | `Ai:Gemini:ApiKey`, `Ai:Groq:ApiKey` | ключи ИИ-провайдеров (необязательны: без них — заглушка), раздел 5.14 |
 | `Ocr:TesseractPath`, `Ocr:TessdataPath` | где Tesseract и языки на Windows (не секрет, но путь свой у каждого ПК) |
 
@@ -604,9 +626,10 @@ Users (1) ──< (много) MedicalDocuments (1) ──< (много) TestRes
 ### 5.12. Подготовка базы при запуске (`Data/DbInitializer.cs`)
 `Program.cs` вызывает `DbInitializer.InitializeAsync(app)` до приёма запросов:
 1. `Database:MigrateOnStartup = true` → `Database.MigrateAsync()` (включено в Docker, где база создаётся пустой).
-2. Дальше только в **Development**:
-   - **админ из user-secrets**: `SeedAdmin:Email/Password` → создаётся с ролью Admin, если такого email нет
-     (нужно, потому что регистрация создаёт только пациентов);
+2. Во **всех окружениях** — **админ из секретов**: `SeedAdmin:Email/Password` (user-secrets, в Docker — `.env`) →
+   создаётся с ролью Admin, если такого email нет (регистрация создаёт только пациентов, а в Production демо-аккаунтов
+   нет — так публичный демо-сервер получает первого админа, Этап 7.7).
+3. Дальше только в **Development**:
    - **демо-аккаунты** (`DemoData:Enabled`): `patient@`, `doctor@`, `admin@healthly.com`. Каждому, у кого нет документов,
      добавляется **история за 6 месяцев**: 6 документов (раз в месяц, последний — неделю назад) с показателями
      Glucose, Cholesterol, Hemoglobin. Флаг `IsAbnormal` считает тот же `ReferenceRangeEvaluator`, что и API.

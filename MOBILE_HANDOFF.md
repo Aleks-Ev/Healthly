@@ -72,7 +72,8 @@ All endpoints live under `/api`. Base URL = `http://<host>:5097`.
 | Android emulator | `http://10.0.2.2:5097` | `10.0.2.2` is the emulator's alias for the host PC's `localhost` |
 | iOS simulator | `http://localhost:5097` | The simulator shares the Mac's network |
 | Real phone, same Wi-Fi | `http://<PC's LAN IP>:5097`, e.g. `http://192.168.1.152:5097` | Find the IP: `ipconfig` (Windows) → *Wi-Fi adapter → IPv4 Address*. Needs the `lan` profile and the firewall rule above |
-| Real phone, any network | `https://<id>.ngrok-free.app` | Run `ngrok http 5097` on the PC. HTTPS, no firewall or cleartext settings needed. The URL changes on every ngrok restart (free plan) |
+| Real phone, any network — **shared demo server** | `https://healthilyclub.com` | The project owner's PC behind Cloudflare Tunnel (HTTPS, nothing to configure). Production mode: no demo accounts — register in the app or ask the owner for a Doctor/Lab account. Works while that PC is on |
+| Real phone, any network — your own API | `https://<id>.ngrok-free.app` | Run `ngrok http 5097` on the PC. HTTPS, no firewall or cleartext settings needed. The URL changes on every ngrok restart (free plan) |
 
 Keep the base URL in one config value (e.g. `--dart-define=API_URL=...` in Flutter, `.env` / `app.config.ts` in React Native).
 
@@ -205,6 +206,7 @@ the API first started), each with **Glucose** (mmol/L), **Cholesterol** (mmol/L)
 | `404` | Not found (record or URL) | `"User not found"` |
 | `405` | Wrong HTTP method for the URL | `"This HTTP method is not supported for this endpoint."` |
 | `409` | Email already registered | `"A user with this email already exists"` |
+| `429` | Rate limit: login/register — 20 per minute per IP; `POST /api/documents/{id}/analyze` — 20 per hour per user; lab Healthly ID lookup — 30 per minute. Wait `Retry-After` seconds (header) | `"Too many requests. Please try again in 42 seconds."` |
 | `500` | Server bug | `"An unexpected error occurred. Please try again later."` |
 
 Validation error (`400`) — show `errors[field][0]` under the matching input. Keys are PascalCase DTO property names

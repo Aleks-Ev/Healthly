@@ -30,6 +30,7 @@
 - **Frontend:** `npm run dev` (inside `healthly-web/`)
 - **Database:** PostgreSQL `healthly_db`, managed via pgAdmin.
 - **Docker (everything at once):** `docker compose up -d --build` in the root (web :3000, API :5097, Postgres :5433; volumes `postgres-data`, `uploads`). Secrets in `.env` (template `.env.example`).
+- **Public demo server:** `docker compose --profile tunnel up -d --build` → https://healthilyclub.com via Cloudflare Tunnel (TEAM_GUIDE.md §7). The site proxies `/api/*` to the API (`API_PROXY_TARGET`, `next.config.ts` rewrites, `PUBLIC_API_URL=/api`) so cookies stay same-site; API trusts `X-Forwarded-*` (`Proxy:TrustForwardedHeaders`). Rate limits in `Services/RateLimiting.cs` (`[EnableRateLimiting]` on login/register, analyze, lab lookup). Production = no demo accounts; first admin from `SeedAdmin:*` in every environment.
 
 ## Development Rules
 - Keep frontend and backend decoupled.

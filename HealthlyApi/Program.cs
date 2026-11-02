@@ -5,6 +5,7 @@ using HealthlyApi.Services;
 using HealthlyApi.Services.Ai;
 using HealthlyApi.Services.Ai.Ocr;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
@@ -92,6 +93,23 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 builder.Services.AddAuthorization();
+// Лимиты на вход/регистрацию, ИИ-анализ и поиск по Healthly ID — см. Services/RateLimiting.cs
+builder.Services.AddHealthlyRateLimiting();
+
+// За Cloudflare Tunnel (и прокси Next.js) API получает запросы не от браузера, а от прокси.
+// Proxy:TrustForwardedHeaders = true (в docker-compose.yml) → берём настоящие IP и схему (https) из X-Forwarded-*:
+// IP нужен лимитам по адресу, https — флагу Secure у cookie с refresh-токеном.
+// Доверяем любому отправителю, т.к. адреса прокси внутри Docker заранее неизвестны; локально (dotnet run) выключено
+var trustForwardedHeaders = builder.Configuration.GetValue<bool>("Proxy:TrustForwardedHeaders");
+if (trustForwardedHeaders)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
+}
 
 builder.Services.AddControllers(options => options.Filters.Add(new ProblemDetailsContentTypeFilter()));
 // Все ошибки — в формате ProblemDetails (RFC 9457) с traceId; см. Middleware/ExceptionHandlingMiddleware.cs
@@ -105,7 +123,13 @@ builder.Services.AddOpenApi(options =>
 
 var app = builder.Build();
 
-// Первым в конвейере — ловит исключения всех следующих middleware и контроллеров
+// До всего остального: следующие middleware уже видят настоящие IP и схему запроса
+if (trustForwardedHeaders)
+{
+    app.UseForwardedHeaders();
+}
+
+// Ловит исключения всех следующих middleware и контроллеров
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 // Пустые ответы 400–599 (401 от JWT, 403, 404 неизвестного адреса) получают тело ProblemDetails
 app.UseStatusCodePages();
@@ -134,6 +158,8 @@ if (!app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 }
 app.UseAuthentication();
+// После аутентификации: лимиты ИИ-анализа считаются по пользователю
+app.UseRateLimiter();
 app.UseAuthorization();
 app.MapControllers();
 

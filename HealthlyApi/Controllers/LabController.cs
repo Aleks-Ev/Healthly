@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using HealthlyApi.Data;
 using HealthlyApi.Dtos;
@@ -41,10 +42,13 @@ public class LabController : ControllerBase
     /// <response code="200">The patient.</response>
     /// <response code="403">The account is not linked to a laboratory.</response>
     /// <response code="404">No patient with this Healthly ID.</response>
+    /// <response code="429">More than 30 lookups in a minute; wait for the time in <c>Retry-After</c> (seconds).</response>
     [HttpGet("patients/{code}")]
+    [EnableRateLimiting(RateLimiting.PatientLookup)]
     [ProducesResponseType<LabPatientResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<LabPatientResponse>> FindPatient(string code, CancellationToken cancellationToken)
     {
         if (User.GetLaboratoryId() == null)
