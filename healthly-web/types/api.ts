@@ -278,3 +278,28 @@ export interface AuditEvent {
   action: 'PatientLookedUp' | 'DocumentUploaded' | 'DocumentAnalyzed' | 'AnalysisConfirmed' | 'DocumentDeleted';
   details: string;
 }
+
+// --- Справочник норм (GET /api/reference-values, Doctor/Admin, только чтение) ---
+
+export type ReferenceSex = 'Any' | 'Female' | 'Male';
+
+export interface ReferenceValue {
+  id: number;
+  metricName: string;
+  aliases: string[];
+  sex: ReferenceSex;
+  ageFrom: number | null;
+  ageTo: number | null;
+  minNormal: number | null;
+  maxNormal: number | null;
+  criticalLow: number | null;
+  criticalHigh: number | null;
+  unit: string;
+  category: string;
+  doctorSpecialty: string;
+  source: string;
+  // false — черновик: медсоветник ещё не проверил строку
+  isReviewed: boolean;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+}

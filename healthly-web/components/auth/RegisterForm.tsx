@@ -1,14 +1,18 @@
 'use client';
 
-// Форма регистрации пациента (макет в стиле Function Health).
+// Форма регистрации пациента (макет Figma «Healthily registration»).
+// В макете три поля (имя, e-mail, пароль); API требует ещё телефон, дату рождения, пол, город и согласия —
+// они идут вторым блоком «A few details for your lab tests» в том же стиле.
 // Клиентская валидация показывает ошибки сразу; ошибки сервера (ValidationProblem) выводятся под теми же полями.
 
 import { useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
-import { Check, ChevronDown } from 'lucide-react';
-import { SelectField, TextField, fieldError } from '@/components/ui/Field';
+import { ArrowRight, Check, ChevronDown } from 'lucide-react';
+import { CONTROL_CLASS, LABEL_CLASS, PasswordField, SelectField, TextField, fieldError } from '@/components/ui/Field';
 import Button from '@/components/ui/Button';
 import Alert from '@/components/ui/Alert';
 import { ApiError, getErrorMessage } from '@/lib/api';
+import { useI18n } from '@/lib/i18n';
+import type { Dictionary } from '@/locales/en';
 import { GENDERS, TESTING_CITIES, type Gender, type RegisterRequest, type TestingCity } from '@/types/api';
 
 interface RegisterFormProps {
@@ -48,11 +52,6 @@ const INITIAL_STATE: FormState = {
   acceptMedicalAuthorization: false,
 };
 
-const CITY_OPTIONS = [
-  { value: '', label: 'Select a city' },
-  ...TESTING_CITIES.map((city) => ({ value: city, label: city })),
-];
-
 // Поля формы → ключи ошибок API (ASP.NET возвращает имена свойств RegisterRequest)
 const SERVER_FIELDS: Partial<Record<FieldName, string>> = { phone: 'phoneNumber' };
 
@@ -91,63 +90,67 @@ function ageOn(isoDate: string, today: Date): number {
   return age;
 }
 
-function validate(form: FormState): Errors {
+type ErrorMessages = Dictionary['auth']['register']['errors'];
+
+function validate(form: FormState, m: ErrorMessages): Errors {
   const errors: Errors = {};
 
   if (!form.email.trim()) {
-    errors.email = 'Email is required';
+    errors.email = m.emailRequired;
   } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
-    errors.email = 'Enter a valid email address';
+    errors.email = m.emailInvalid;
   }
 
   if (form.password.length < 8) {
-    errors.password = 'Password must be at least 8 characters';
+    errors.password = m.passwordShort;
   }
 
   if (!form.firstName.trim()) {
-    errors.firstName = 'First name is required';
+    errors.firstName = m.firstNameRequired;
   }
   if (!form.lastName.trim()) {
-    errors.lastName = 'Last name is required';
+    errors.lastName = m.lastNameRequired;
   }
 
   if (!form.phone) {
-    errors.phone = 'Phone number is required';
+    errors.phone = m.phoneRequired;
   } else if (form.phone.replace(/\D/g, '').length !== 10) {
-    errors.phone = 'Enter 10 digits after +90';
+    errors.phone = m.phoneDigits;
   }
 
   const isoDate = toIsoDate(form.dateOfBirth);
   if (!form.dateOfBirth) {
-    errors.dateOfBirth = 'Date of birth is required';
+    errors.dateOfBirth = m.dateRequired;
   } else if (!isoDate) {
-    errors.dateOfBirth = 'Use the format MM/DD/YYYY';
+    errors.dateOfBirth = m.dateFormat;
   } else {
     const age = ageOn(isoDate, new Date());
     if (age < 18) {
-      errors.dateOfBirth = 'You must be at least 18 years old';
+      errors.dateOfBirth = m.dateTooYoung;
     } else if (age > 120) {
-      errors.dateOfBirth = 'Enter a valid date of birth';
+      errors.dateOfBirth = m.dateInvalid;
     }
   }
 
   if (!form.gender) {
-    errors.gender = 'Select your gender';
+    errors.gender = m.genderRequired;
   }
   if (!form.city) {
-    errors.city = 'Select where you will be testing';
+    errors.city = m.cityRequired;
   }
   if (!form.acceptTerms) {
-    errors.acceptTerms = 'You must accept to continue';
+    errors.acceptTerms = m.consentRequired;
   }
   if (!form.acceptMedicalAuthorization) {
-    errors.acceptMedicalAuthorization = 'You must accept to continue';
+    errors.acceptMedicalAuthorization = m.consentRequired;
   }
 
   return errors;
 }
 
 export default function RegisterForm({ onSubmit }: RegisterFormProps) {
+  const { t } = useI18n();
+  const r = t.auth.register;
   const [form, setForm] = useState<FormState>(INITIAL_STATE);
   const [errors, setErrors] = useState<Errors>({});
   const [serverErrors, setServerErrors] = useState<Record<string, string[]>>({});
@@ -175,10 +178,10 @@ export default function RegisterForm({ onSubmit }: RegisterFormProps) {
     event.preventDefault();
     setFormError(null);
 
-    const validationErrors = validate(form);
+    const validationErrors = validate(form, r.errors);
     setErrors(validationErrors);
     if (Object.keys(validationErrors).length > 0) {
-      setFormError('Please fix the highlighted fields.');
+      setFormError(r.errors.fixFields);
       return;
     }
 
@@ -206,24 +209,40 @@ export default function RegisterForm({ onSubmit }: RegisterFormProps) {
     }
   };
 
+  const cityOptions = [{ value: '', label: r.cityPlaceholder }, ...TESTING_CITIES.map((city) => ({ value: city, label: city }))];
+
   return (
-    <form onSubmit={handleSubmit} noValidate className="space-y-6">
-      <TextField label="Email*" id="email" type="email" autoComplete="email" placeholder="you@example.com" value={form.email} onChange={text('email')} error={errorFor('email')} />
+    <form onSubmit={handleSubmit} noValidate className="space-y-5">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-4">
+        <TextField label={r.firstName} id="firstName" autoComplete="given-name" placeholder={r.namePlaceholder} value={form.firstName} onChange={text('firstName')} error={errorFor('firstName')} />
+        <TextField label={r.lastName} id="lastName" autoComplete="family-name" placeholder={r.namePlaceholder} value={form.lastName} onChange={text('lastName')} error={errorFor('lastName')} />
+      </div>
 
-      <TextField label="Password*" id="password" type="password" autoComplete="new-password" hint="At least 8 characters" value={form.password} onChange={text('password')} error={errorFor('password')} />
+      <TextField label={r.email} id="email" type="email" autoComplete="email" placeholder={r.emailPlaceholder} value={form.email} onChange={text('email')} error={errorFor('email')} />
 
-      <fieldset className="space-y-2">
-        <legend className="mb-2 text-sm font-medium text-[#242b26]">Legal name*</legend>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <TextField label="First name" id="firstName" autoComplete="given-name" value={form.firstName} onChange={text('firstName')} error={errorFor('firstName')} />
-          <TextField label="Last name" id="lastName" autoComplete="family-name" value={form.lastName} onChange={text('lastName')} error={errorFor('lastName')} />
-        </div>
-      </fieldset>
+      <PasswordField
+        label={r.password}
+        id="password"
+        autoComplete="new-password"
+        placeholder={r.passwordPlaceholder}
+        hint={r.passwordHint}
+        showLabel={t.auth.showPassword}
+        hideLabel={t.auth.hidePassword}
+        value={form.password}
+        onChange={text('password')}
+        error={errorFor('password')}
+      />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <PhoneField value={form.phone} onChange={(value) => setField('phone', formatPhone(value))} error={errorFor('phone')} />
+      {/* Второй блок: то, что нужно для норм (пол, возраст) и для связи лаборатории */}
+      <div className="border-t border-[#eceee7] pt-6">
+        <h2 className="text-[15px] font-semibold text-[#2a302b]">{r.detailsTitle}</h2>
+        <p className="mt-1 text-[13px] leading-relaxed text-[#6c736c]">{r.detailsText}</p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-4">
+        <PhoneField label={r.phone} value={form.phone} onChange={(value) => setField('phone', formatPhone(value))} error={errorFor('phone')} />
         <TextField
-          label="Date of birth*"
+          label={r.dateOfBirth}
           id="dateOfBirth"
           inputMode="numeric"
           autoComplete="bday"
@@ -235,62 +254,62 @@ export default function RegisterForm({ onSubmit }: RegisterFormProps) {
       </div>
 
       <fieldset>
-        <legend className="mb-2 text-sm font-medium text-[#242b26]">Gender*</legend>
+        <legend className={`mb-2 ${LABEL_CLASS}`}>{r.gender}</legend>
         <div role="radiogroup" className="grid grid-cols-3 gap-2">
-          {GENDERS.map((gender) => (
-            <label
-              key={gender}
-              className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition has-focus-visible:ring-2 has-focus-visible:ring-[#72826c]/30 ${
-                form.gender === gender
-                  ? 'border-[#72826c] bg-[#eef2ea] text-[#242b26] font-medium'
-                  : `bg-white text-[#4a524c] hover:border-[#c9c1b0] ${errorFor('gender') ? 'border-red-400' : 'border-[#e6dfd1]'}`
-              }`}
-            >
-              <input type="radio" name="gender" value={gender} checked={form.gender === gender} onChange={() => setField('gender', gender)} className="sr-only" />
-              <span className={`flex h-4 w-4 items-center justify-center rounded-full border ${form.gender === gender ? 'border-[#72826c]' : 'border-[#c9c1b0]'}`}>
-                {form.gender === gender && <span className="h-2 w-2 rounded-full bg-[#72826c]" />}
-              </span>
-              {gender}
-            </label>
-          ))}
+          {GENDERS.map((gender) => {
+            const isSelected = form.gender === gender;
+            return (
+              <label
+                key={gender}
+                className={`flex min-w-0 cursor-pointer items-center justify-center gap-2 rounded-xl border px-2 py-3 text-sm transition has-focus-visible:ring-4 has-focus-visible:ring-[#737f69]/15 ${
+                  isSelected
+                    ? 'border-[#8d9a84] bg-[#eef2ea] font-medium text-[#2a302b]'
+                    : `bg-[#fdfdf9] text-[#4a524c] hover:border-[#cfd4c7] ${errorFor('gender') ? 'border-red-300' : 'border-[#e3e6dc]'}`
+                }`}
+              >
+                <input type="radio" name="gender" value={gender} checked={isSelected} onChange={() => setField('gender', gender)} className="sr-only" />
+                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${isSelected ? 'border-[#737f69]' : 'border-[#c9cdc2]'}`}>
+                  {isSelected && <span className="h-2 w-2 rounded-full bg-[#737f69]" />}
+                </span>
+                <span className="truncate">{r.genders[gender] ?? gender}</span>
+              </label>
+            );
+          })}
         </div>
         <FieldErrorText error={errorFor('gender')} />
       </fieldset>
 
       <SelectField
-        label="Where will you be testing?*"
+        label={r.city}
         id="city"
         value={form.city}
         onChange={(event) => setField('city', event.target.value as TestingCity | '')}
-        options={CITY_OPTIONS}
+        options={cityOptions}
         error={errorFor('city')}
       />
 
-      <div className="rounded-2xl border border-[#ebe4d6] bg-[#faf6ef]">
+      <div className="rounded-xl border border-[#e3e6dc] bg-[#fafaf6]">
         <button
           type="button"
           onClick={() => setIsAccessCodeOpen((open) => !open)}
           aria-expanded={isAccessCodeOpen}
           aria-controls="access-code-panel"
-          className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-[#242b26]"
+          className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-[#2f3530]"
         >
-          Have an access code?
-          <ChevronDown className={`h-4 w-4 text-[#6b756e] transition-transform ${isAccessCodeOpen ? 'rotate-180' : ''}`} />
+          {r.accessCode}
+          <ChevronDown className={`h-4 w-4 text-[#6c736c] transition-transform ${isAccessCodeOpen ? 'rotate-180' : ''}`} />
         </button>
         {isAccessCodeOpen && (
           <div id="access-code-panel" className="px-4 pb-4">
-            <TextField label="Access code (optional)" id="accessCode" autoComplete="off" value={form.accessCode} onChange={text('accessCode')} error={errorFor('accessCode')} />
+            <TextField label={r.accessCodeLabel} id="accessCode" autoComplete="off" value={form.accessCode} onChange={text('accessCode')} error={errorFor('accessCode')} />
           </div>
         )}
       </div>
 
-      <div className="space-y-4 border-t border-[#ebe4d6] pt-6">
-        <Checkbox id="marketingOptIn" checked={form.marketingOptIn} onChange={(checked) => setField('marketingOptIn', checked)}>
-          I would like to receive news, health tips and special offers from Healthly. You can unsubscribe at any time.
-        </Checkbox>
+      <div className="space-y-4 pt-1">
         <Checkbox id="acceptTerms" checked={form.acceptTerms} onChange={(checked) => setField('acceptTerms', checked)} error={errorFor('acceptTerms')}>
-          I agree to the <DocumentName>Privacy Policy</DocumentName>, <DocumentName>Terms of Service</DocumentName> and{' '}
-          <DocumentName>Request for Lab Results</DocumentName>.*
+          {r.termsPrefix} <DocumentName>{r.privacyPolicy}</DocumentName>, <DocumentName>{r.termsOfService}</DocumentName> {r.and}{' '}
+          <DocumentName>{r.labResultsRequest}</DocumentName>.
         </Checkbox>
         <Checkbox
           id="acceptMedicalAuthorization"
@@ -298,14 +317,18 @@ export default function RegisterForm({ onSubmit }: RegisterFormProps) {
           onChange={(checked) => setField('acceptMedicalAuthorization', checked)}
           error={errorFor('acceptMedicalAuthorization')}
         >
-          I agree to the <DocumentName>Authorization for Use of Medical Information</DocumentName>.*
+          {r.termsPrefix} <DocumentName>{r.medicalAuthorization}</DocumentName>.
+        </Checkbox>
+        <Checkbox id="marketingOptIn" checked={form.marketingOptIn} onChange={(checked) => setField('marketingOptIn', checked)}>
+          {r.marketing}
         </Checkbox>
       </div>
 
       {formError && <Alert>{formError}</Alert>}
 
-      <Button type="submit" className="w-full py-3.5! text-base" isLoading={isSubmitting}>
-        Get started
+      <Button type="submit" className="w-full rounded-xl! py-4! text-[15px]! shadow-[0_10px_22px_-14px_rgba(70,82,64,0.9)]" isLoading={isSubmitting}>
+        {r.submit}
+        {!isSubmitting && <ArrowRight className="h-4 w-4" />}
       </Button>
     </form>
   );
@@ -317,19 +340,15 @@ function FieldErrorText({ error }: { error?: string }) {
 
 // Название юридического документа (отдельных страниц пока нет)
 function DocumentName({ children }: { children: ReactNode }) {
-  return <span className="font-medium text-[#242b26] underline decoration-[#c9c1b0] underline-offset-2">{children}</span>;
+  return <span className="text-[#2f3530] underline decoration-[#c9cdc2] underline-offset-2">{children}</span>;
 }
 
-function PhoneField({ value, onChange, error }: { value: string; onChange: (value: string) => void; error?: string }) {
+function PhoneField({ label, value, onChange, error }: { label: string; value: string; onChange: (value: string) => void; error?: string }) {
   return (
-    <div className="space-y-1.5">
-      <label htmlFor="phone" className="block text-xs font-medium text-[#6b756e]">Phone number*</label>
-      <div
-        className={`flex items-center rounded-xl border bg-white transition focus-within:border-[#72826c] focus-within:ring-2 focus-within:ring-[#72826c]/20 ${
-          error ? 'border-red-400' : 'border-[#e1e7dc]'
-        }`}
-      >
-        <span className="pl-3.5 pr-2 text-sm text-[#6b756e] select-none">+90</span>
+    <div className="space-y-2">
+      <label htmlFor="phone" className={LABEL_CLASS}>{label}</label>
+      <div className="relative">
+        <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 select-none text-[15px] text-[#6c736c]">+90</span>
         <input
           id="phone"
           type="tel"
@@ -339,7 +358,7 @@ function PhoneField({ value, onChange, error }: { value: string; onChange: (valu
           aria-invalid={Boolean(error)}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className="w-full rounded-r-xl bg-transparent py-2.5 pr-3.5 text-sm text-[#242b26] placeholder:text-[#a3aba5] outline-none"
+          className={`${CONTROL_CLASS} pl-13`}
         />
       </div>
       <FieldErrorText error={error} />
@@ -358,12 +377,12 @@ interface CheckboxProps {
 function Checkbox({ id, checked, onChange, error, children }: CheckboxProps) {
   return (
     <div>
-      <label htmlFor={id} className="flex cursor-pointer items-start gap-3 text-sm leading-relaxed text-[#4a524c]">
+      <label htmlFor={id} className="flex cursor-pointer items-start gap-3 text-[13px] leading-relaxed text-[#5b625b]">
         <input id={id} type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} aria-invalid={Boolean(error)} className="peer sr-only" />
         <span
           aria-hidden
-          className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition peer-focus-visible:ring-2 peer-focus-visible:ring-[#72826c]/30 ${
-            checked ? 'border-[#72826c] bg-[#72826c] text-white' : error ? 'border-red-400 bg-white' : 'border-[#c9c1b0] bg-white'
+          className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition peer-focus-visible:ring-4 peer-focus-visible:ring-[#737f69]/15 ${
+            checked ? 'border-[#737f69] bg-[#737f69] text-white' : error ? 'border-red-300 bg-white' : 'border-[#cfd3c8] bg-[#fdfdf9]'
           }`}
         >
           {checked && <Check className="h-3.5 w-3.5" strokeWidth={3} />}

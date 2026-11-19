@@ -13,6 +13,7 @@ import type {
   LabPatient,
   Laboratory,
   LaboratoryRequest,
+  ReferenceValue,
   IndicatorTrend,
   LoginRequest,
   MedicalDocument,
@@ -297,6 +298,11 @@ export const laboratoriesApi = {
   list: () => request<Laboratory[]>('/laboratories'),
   create: (data: LaboratoryRequest) => request<Laboratory>('/laboratories', { method: 'POST', json: data }),
   remove: (id: number) => request<void>(`/laboratories/${id}`, { method: 'DELETE' }),
+};
+
+// Справочник норм (Doctor, Admin) — только чтение; правится в HealthlyApi/Data/reference-values.csv
+export const referenceValuesApi = {
+  list: () => request<ReferenceValue[]>('/reference-values'),
 };
 
 // Рабочее место сотрудника лаборатории (LabStaff). code — Healthly ID пациента ("HL-7K3P9Q", регистр и пробелы не важны)

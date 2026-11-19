@@ -1,119 +1,121 @@
 'use client';
 
+// Шапка лендинга (как в Figma): светлая, логотип слева, ссылки и «Sign In» справа.
+// Лупа открывает поиск по странице (SearchDialog; состояние и горячие клавиши — в app/page.tsx).
+
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { Search, Menu, X } from 'lucide-react';
+import { Menu, Search, X } from 'lucide-react';
 import Logo from '@/components/layout/Logo';
+import LanguageSwitcher from '@/components/ui/LanguageSwitcher';
 import { useAuth } from '@/lib/auth';
+import { useI18n } from '@/lib/i18n';
 
-interface NavLink {
-  label: string;
-  href: string;
-}
-
-const NAV_LINKS: NavLink[] = [
-  { label: 'How it works', href: '#how-it-works' },
-  { label: 'What we test', href: '#testing' },
-  { label: 'Lab tests', href: '#analyses' },
-  { label: 'FAQ', href: '#faq' },
-  { label: 'About us', href: '#philosophy' },
-];
-
-export default function Navbar() {
+export default function Navbar({ onOpenSearch }: { onOpenSearch: () => void }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { user, logout } = useAuth();
-  const router = useRouter();
+  const { t } = useI18n();
+
+  const links = [
+    { label: t.nav.howItWorks, href: '#how-it-works' },
+    { label: t.nav.labTests, href: '#analyses' },
+    { label: t.nav.testing, href: '#testing' },
+    { label: t.nav.faq, href: '#faq' },
+    { label: t.nav.about, href: '#philosophy' },
+  ];
 
   const closeMobileMenu = () => setIsMobileMenuOpen(false);
+  const openSearch = () => {
+    closeMobileMenu();
+    onOpenSearch();
+  };
 
-  // Кнопки справа зависят от того, вошёл ли пользователь
-  const secondaryAction = user
-    ? { label: 'Log out', onClick: () => { logout(); closeMobileMenu(); } }
-    : { label: 'Log in', onClick: () => router.push('/login') };
-  const primaryAction = user
-    ? { label: 'My dashboard', href: '/dashboard' }
-    : { label: 'Start testing', href: '/register' };
+  const pillClass =
+    'items-center justify-center rounded-full bg-white px-5 py-2 text-sm font-medium text-[#2a302b] shadow-[0_1px_2px_rgba(42,48,43,0.06),0_4px_14px_-6px_rgba(42,48,43,0.12)] transition hover:bg-[#fbfbf8] active:scale-[0.98]';
 
   return (
-    <header className="sticky top-4 z-40 mx-auto w-[92%] max-w-7xl font-sans-aesthetic">
-      <div className="rounded-2xl bg-slate-900/60 backdrop-blur-lg border border-white/10 shadow-2xl text-white">
-        <div className="h-16 px-4 sm:px-6 flex items-center justify-between gap-4">
-          <Logo tone="light" />
+    <header className="sticky top-0 z-40 border-b border-transparent bg-[#f7f7f2]/80 font-sans-aesthetic backdrop-blur-md supports-[backdrop-filter]:bg-[#f7f7f2]/70">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:h-[72px] sm:px-8 lg:px-12">
+          <Logo />
 
-          {/* Desktop links */}
-          <nav className="hidden lg:flex items-center gap-7 text-sm text-white/80">
-            {NAV_LINKS.map((link) => (
-              <a key={link.href} href={link.href} className="hover:text-emerald-400 transition">
+          <nav className="hidden items-center gap-7 text-[13px] text-[#4a524c] lg:flex" aria-label="Main">
+            {links.map((link) => (
+              <a key={link.href} href={link.href} className="transition hover:text-[#2a302b]">
                 {link.label}
               </a>
             ))}
           </nav>
 
-          {/* Actions */}
-          <div className="flex items-center gap-1 sm:gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2.5">
             <button
-              aria-label="Search"
-              className="p-2 rounded-full text-white/80 hover:text-emerald-400 hover:bg-white/5 transition"
+              type="button"
+              onClick={openSearch}
+              aria-label={t.common.search}
+              title={`${t.common.search} ( / )`}
+              className="rounded-full p-2 text-[#4a524c] transition hover:bg-white hover:text-[#2a302b]"
             >
-              <Search className="w-5 h-5" />
+              <Search className="h-[18px] w-[18px]" />
             </button>
 
-            <button
-              onClick={secondaryAction.onClick}
-              className="hidden sm:inline-flex px-4 py-2 text-sm font-medium text-white/90 hover:text-emerald-400 transition"
-            >
-              {secondaryAction.label}
-            </button>
+            <LanguageSwitcher className="hidden sm:block" />
 
-            <Link
-              href={primaryAction.href}
-              className="hidden sm:inline-flex px-5 py-2 rounded-full bg-[#f5f1e8] text-slate-900 text-sm font-semibold shadow-sm hover:bg-white active:scale-95 transition"
-            >
-              {primaryAction.label}
-            </Link>
+            {user ? (
+              <>
+                <button type="button" onClick={logout} className="hidden px-2 text-sm text-[#4a524c] transition hover:text-[#2a302b] md:inline-flex">
+                  {t.common.logOut}
+                </button>
+                <Link href="/dashboard" className={`hidden sm:inline-flex ${pillClass}`}>
+                  {t.common.myDashboard}
+                </Link>
+              </>
+            ) : (
+              <Link href="/login" className={`hidden sm:inline-flex ${pillClass}`}>
+                {t.common.signIn}
+              </Link>
+            )}
 
+            {/* Круглая кнопка меню, как в мобильном макете */}
             <button
-              aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+              type="button"
+              aria-label={isMobileMenuOpen ? t.common.closeMenu : t.common.openMenu}
               aria-expanded={isMobileMenuOpen}
               onClick={() => setIsMobileMenuOpen((open) => !open)}
-              className="lg:hidden p-2 rounded-full text-white/80 hover:text-emerald-400 hover:bg-white/5 transition"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-[#dfe3d9] text-[#4a524c] transition hover:bg-white lg:hidden"
             >
-              {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              {isMobileMenuOpen ? <X className="h-[18px] w-[18px]" /> : <Menu className="h-[18px] w-[18px]" />}
             </button>
           </div>
         </div>
 
-        {/* Mobile menu */}
         {isMobileMenuOpen && (
-          <div className="lg:hidden border-t border-white/10 px-4 sm:px-6 py-4 space-y-1">
-            {NAV_LINKS.map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                onClick={closeMobileMenu}
-                className="block px-3 py-2 rounded-lg text-sm text-white/80 hover:text-emerald-400 hover:bg-white/5 transition"
-              >
-                {link.label}
-              </a>
-            ))}
-            <div className="flex flex-col sm:hidden gap-2 pt-3">
-              <button
-                onClick={secondaryAction.onClick}
-                className="w-full px-4 py-2.5 rounded-full border border-white/15 text-sm font-medium hover:text-emerald-400 transition"
-              >
-                {secondaryAction.label}
-              </button>
-              <Link
-                href={primaryAction.href}
-                className="w-full text-center px-4 py-2.5 rounded-full bg-[#f5f1e8] text-slate-900 text-sm font-semibold hover:bg-white transition"
-              >
-                {primaryAction.label}
-              </Link>
+          <div className="border-t border-[#e3e6dd] bg-[#f7f7f2] px-4 pb-5 pt-3 sm:px-8 lg:hidden">
+            <nav className="space-y-0.5" aria-label="Main">
+              {links.map((link) => (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  onClick={closeMobileMenu}
+                  className="block rounded-xl px-3 py-2.5 text-[15px] text-[#2a302b] transition hover:bg-white"
+                >
+                  {link.label}
+                </a>
+              ))}
+            </nav>
+            <div className="mt-4 flex items-center justify-between gap-3 border-t border-[#e3e6dd] pt-4">
+              <LanguageSwitcher />
+              {user ? (
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => { logout(); closeMobileMenu(); }} className="px-2 text-sm text-[#4a524c]">
+                    {t.common.logOut}
+                  </button>
+                  <Link href="/dashboard" className={`inline-flex ${pillClass}`}>{t.common.myDashboard}</Link>
+                </div>
+              ) : (
+                <Link href="/login" className={`inline-flex ${pillClass}`}>{t.common.signIn}</Link>
+              )}
             </div>
           </div>
         )}
-      </div>
     </header>
   );
 }

@@ -1,96 +1,98 @@
-// Первый экран: заголовок, кнопки и арочная иллюстрация
+'use client';
+
+// Первый экран (Figma «Healthily home»): заголовок с засечками, две кнопки и «арка» со сценой рассвета.
+// На телефоне — как в мобильном макете: всё по центру, главная кнопка во всю ширину, под ней веточки.
 
 import Link from 'next/link';
-import { ArrowUpRight, ChevronDown, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, ChevronDown, ShieldCheck, Sparkles } from 'lucide-react';
+import { useI18n } from '@/lib/i18n';
+import { BranchPair, OliveBranch, SunriseScene } from './Botanicals';
 import type { SectionProps } from './theme';
 
 export default function HeroSection({ theme }: SectionProps) {
-  return (
-    <section className="pt-12 pb-24 px-6 sm:px-12 max-w-7xl mx-auto">
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
+  const { t } = useI18n();
 
-        {/* Left Hero Content */}
-        <div className="lg:col-span-6 space-y-8">
-          <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest"
-               style={{ color: theme.textSecondary }}>
-            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: theme.accentGreen }} />
-            A HEALTHIER VERSION OF YOU.
+  return (
+    <section className="mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-8 sm:pt-12 lg:px-12 lg:pb-24">
+      <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-12 lg:gap-10">
+
+        <div className="text-center lg:col-span-6 lg:text-left">
+          <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: theme.textSecondary }}>
+            <span className="hidden h-1.5 w-1.5 rounded-full lg:inline-block" style={{ backgroundColor: theme.accentGreen }} />
+            {t.hero.eyebrow}
           </div>
 
-          <h1 className="text-5xl sm:text-6xl md:text-7xl font-serif-aesthetic leading-[1.08] tracking-tight"
-              style={{ color: theme.textPrimary }}>
-            Live Healthily <br />
-            Ever After
+          <h1 className="mt-5 font-serif-aesthetic text-[52px] leading-[1.02] sm:text-7xl lg:text-[88px]" style={{ color: theme.textPrimary }}>
+            {t.hero.titleLine1}
+            <br />
+            {t.hero.titleLine2}
           </h1>
 
-          <p className="text-base sm:text-lg max-w-md font-sans-aesthetic font-light leading-relaxed"
-             style={{ color: theme.textSecondary }}>
-            Your health is a story worth understanding. Bring your data together, discover what it means, and take your next step with confidence.
+          <p className="mx-auto mt-6 max-w-md text-base leading-relaxed sm:text-[17px] lg:mx-0" style={{ color: theme.textSecondary }}>
+            {t.hero.text}
           </p>
 
-          {/* CTA Buttons */}
-          <div className="flex flex-wrap items-center gap-4 pt-2">
+          {/* Телефон: одна крупная тёмно-зелёная кнопка во всю ширину */}
+          <div className="mt-8 sm:hidden">
             <Link
               href="/register"
-              className="px-6 py-3.5 rounded-full text-sm font-medium flex items-center gap-2 text-white shadow-md transition-transform hover:scale-[1.02] active:scale-95"
+              className="flex w-full items-center justify-between rounded-full px-6 py-4 text-[15px] font-medium text-white shadow-[0_10px_24px_-12px_rgba(70,90,74,0.8)] transition active:scale-[0.98]"
+              style={{ backgroundColor: theme.bgDark }}
+            >
+              {t.hero.primaryCta}
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+
+          <div className="mt-9 hidden flex-wrap items-center justify-center gap-3 sm:flex lg:justify-start">
+            <Link
+              href="/register"
+              className="inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-sm font-medium text-white shadow-[0_8px_20px_-10px_rgba(95,107,87,0.9)] transition hover:brightness-95 active:scale-[0.98]"
               style={{ backgroundColor: theme.accentGreen }}
             >
-              <span>Start Your Journey</span>
-              <ArrowUpRight className="w-4 h-4" />
+              {t.hero.primaryCta}
+              <ArrowUpRight className="h-4 w-4" />
             </Link>
-
             <Link
               href="/dashboard"
-              className="px-6 py-3.5 rounded-full text-sm font-medium flex items-center gap-2 shadow-sm transition-transform hover:scale-[1.02] active:scale-95"
+              className="inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-sm font-medium shadow-[0_1px_2px_rgba(42,48,43,0.06),0_6px_16px_-8px_rgba(42,48,43,0.15)] transition hover:bg-[#fbfbf8] active:scale-[0.98]"
               style={{ backgroundColor: theme.bgCard, color: theme.textPrimary }}
             >
-              <span>Start Testing</span>
-              <ArrowUpRight className="w-4 h-4" />
+              {t.hero.secondaryCta}
+              <ArrowUpRight className="h-4 w-4" />
             </Link>
           </div>
 
-          {/* Sub-tagline */}
-          <div className="flex items-center gap-2 text-xs pt-4" style={{ color: theme.textSecondary }}>
-            <ShieldCheck className="w-4 h-4" style={{ color: theme.accentGreen }} />
-            <span>Your health is personal. We keep it that way.</span>
+          <div className="mt-5 flex items-center justify-center gap-2 text-xs lg:mt-8 lg:justify-start" style={{ color: theme.textSecondary }}>
+            <ShieldCheck className="h-4 w-4" style={{ color: theme.accentGreen }} />
+            <span className="sm:hidden">{t.hero.trust}</span>
+            <span className="hidden sm:inline">{t.common.privacyTagline}</span>
           </div>
 
-          <div className="pt-12 text-[10px] font-semibold tracking-widest uppercase"
-               style={{ color: theme.textSecondary }}>
-            PERSONAL HEALTH, BEAUTIFULLY CONNECTED
-          </div>
+          <a href="#features" className="mt-14 hidden items-center gap-1.5 text-[11px] transition hover:opacity-70 lg:inline-flex" style={{ color: theme.textSecondary }}>
+            {t.hero.explore}
+            <ChevronDown className="h-3.5 w-3.5" />
+          </a>
         </div>
 
-        {/* Right Hero Image Container (Aesthetic Arched Graphic Card) */}
-        <div className="lg:col-span-6 relative">
-          <div className="relative w-full aspect-[4/5] sm:aspect-[1/1] max-w-md mx-auto lg:max-w-none rounded-[100px] sm:rounded-[140px] overflow-hidden shadow-2xl flex items-center justify-center bg-gradient-to-br from-[#dce8d8] via-[#e5ede2] to-[#cddbc8]">
+        {/* Телефон: веточки вместо большой иллюстрации (как в мобильном макете) */}
+        <BranchPair className="py-2 sm:hidden" />
 
-            {/* Artistic SVG Graphic mimicking the Ginkgo / Botanical Leaf artwork from screenshot */}
-            <svg className="w-3/4 h-3/4 text-[#72826c]/60 animate-pulse" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M100 180 C 100 120, 140 80, 160 40 C 120 40, 80 60, 100 180 Z" fill="currentColor" opacity="0.3" />
-              <path d="M100 180 C 100 110, 60 70, 40 30 C 80 30, 120 50, 100 180 Z" fill="currentColor" opacity="0.4" />
-              <circle cx="100" cy="90" r="40" stroke="currentColor" strokeWidth="1" strokeDasharray="4 4" fill="none" />
-              <circle cx="140" cy="50" r="6" fill="currentColor" opacity="0.5" />
-              <circle cx="60" cy="70" r="4" fill="currentColor" opacity="0.3" />
-            </svg>
+        <div className="hidden sm:block lg:col-span-6">
+          <div className="relative mx-auto aspect-[5/4] w-full max-w-xl overflow-hidden rounded-[40px] rounded-tl-[140px] rounded-br-[140px] shadow-[0_30px_60px_-30px_rgba(70,60,40,0.45)] lg:aspect-[11/12] lg:max-w-none">
+            <SunriseScene className="absolute inset-0 h-full w-full" />
+            <OliveBranch className="absolute -bottom-4 left-6 h-56 w-auto opacity-90" />
 
-            {/* Floating AI Glassmorphism Badge */}
-            <div className="absolute bottom-8 left-6 right-6 sm:left-12 sm:right-12 p-5 rounded-3xl bg-white/70 backdrop-blur-md border border-white/60 shadow-xl text-center">
-              <div className="inline-flex items-center gap-1.5 text-[10px] font-bold tracking-widest uppercase mb-1"
-                   style={{ color: theme.textSecondary }}>
-                <Sparkles className="w-3 h-3 text-emerald-700" />
-                POWERED BY AI. CENTRED ON YOU.
-              </div>
-              <div className="text-lg sm:text-xl font-serif-aesthetic" style={{ color: theme.textPrimary }}>
-                A little clarity. A better you.
+            {/* «Стеклянная» плашка поверх сцены */}
+            <div className="absolute bottom-8 right-6 flex max-w-[78%] items-center gap-3 rounded-2xl border border-white/50 bg-white/45 px-4 py-3 shadow-[0_8px_30px_-12px_rgba(42,48,43,0.35)] backdrop-blur-md lg:bottom-14 lg:right-8">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/80">
+                <Sparkles className="h-4 w-4" style={{ color: theme.accentGreen }} />
+              </span>
+              <div className="min-w-0 text-left">
+                <div className="text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: theme.textSecondary }}>{t.hero.badgeEyebrow}</div>
+                <div className="font-serif-aesthetic text-lg leading-tight lg:text-xl" style={{ color: theme.textPrimary }}>{t.hero.badgeTitle}</div>
               </div>
             </div>
-
-            {/* Bottom Right Scroll Indicator */}
-            <a href="#philosophy" className="absolute bottom-4 right-8 flex items-center gap-1 text-[11px] hover:underline" style={{ color: theme.textSecondary }}>
-              <span>Explore a clearer kind of care</span>
-              <ChevronDown className="w-3 h-3" />
-            </a>
           </div>
         </div>
 

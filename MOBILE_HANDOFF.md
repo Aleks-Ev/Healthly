@@ -569,6 +569,7 @@ and on every point of `GET /api/users/{id}/trends`. Show critical values in red 
 | `PUT` | `/api/users/{id}` | ❌ (own only) | ✅ | Edit any user, incl. `role` and `password` |
 | `DELETE` | `/api/users/{id}` | ❌ | ✅ | Delete a user with all their documents (not yourself) |
 | `DELETE` | `/api/documents/{id}` | ❌ | ✅ | Delete any document |
+| `GET` | `/api/reference-values` | ✅ | ✅ | Read-only reference table (norms) — see below |
 
 ### Moderation flow
 
@@ -578,6 +579,27 @@ and on every point of `GET /api/users/{id}/trends`. Show critical values in red 
 4. `PUT /api/documents/{id}/status` with `{ "status": "Processing" }` while working on it.
 5. Enter results: `POST /api/documents/{id}/results` for each value → the document becomes `Completed` automatically.
    If the file is unreadable: `{ "status": "Error" }`.
+
+### Reference values — `GET /api/reference-values` (Doctor, Admin)
+
+Read-only list of the norms the API uses to mark results as normal / out of range / critical. Patients and lab staff
+get `403`. The table is edited by medical advisors in `HealthlyApi/Data/reference-values.csv`, not via the API.
+Rows with `isReviewed: false` are **drafts** — show a "Draft" label and do not present them as verified.
+
+```json
+[
+  {
+    "id": 12, "metricName": "Glucose", "aliases": ["Fasting glucose", "GLU"],
+    "sex": "Any", "ageFrom": 18, "ageTo": null,
+    "minNormal": 3.9, "maxNormal": 5.6, "criticalLow": 2.5, "criticalHigh": 25,
+    "unit": "mmol/L", "category": "Biochemistry", "doctorSpecialty": "Endocrinologist",
+    "source": "ADA Standards of Care ...", "isReviewed": false, "reviewedBy": null, "reviewedAt": null
+  }
+]
+```
+
+`sex` is `Any`, `Female` or `Male`; `null` bounds mean "no limit" (e.g. cholesterol has only `maxNormal`).
+Ordered by category, metric, sex and age.
 
 ### Create user — `POST /api/users` (Admin)
 
