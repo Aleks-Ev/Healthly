@@ -44,6 +44,8 @@ builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddSingleton<TokenService>();
 builder.Services.AddScoped<RefreshTokenService>();
 builder.Services.AddScoped<AuditLog>(); // журнал действий с документами (кто загрузил, кто подтвердил)
+builder.Services.AddScoped<HealthlyApi.Services.Care.CareAccess>(); // врач видит медкарту только «своих» пациентов (активная связь)
+builder.Services.AddScoped<HealthlyApi.Services.Care.Notifier>(); // уведомления (колокольчик)
 builder.Services.AddSingleton<PasswordService>();
 builder.Services.AddSingleton<FileStorageService>();
 

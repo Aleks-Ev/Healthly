@@ -141,9 +141,12 @@ They exist only in local development databases.
 | Role | Email | Password | What's inside |
 |---|---|---|---|
 | Patient | `patient@healthly.com` | `Patient123!` | **Elif Kaya**, Istanbul. Glucose and cholesterol above normal, hemoglobin below — all back to normal by the latest test. Plus 1 `Pending` document (yesterday) waiting for a doctor |
-| Doctor | `doctor@healthly.com` | `Doctor123!` | **Dr. Mehmet Yilmaz**, Ankara — stable, normal results. Sees all patients and their records, can change document statuses |
+| Doctor | `doctor@healthly.com` | `Doctor123!` | **Dr. Mehmet Yilmaz**, Ankara, internal medicine — stable, normal results. Sees **only his patients**: Elif Kaya is connected to him (care team) |
+| Doctors (no history) | `ayse.demir@`, `can.ozturk@`, `zeynep.arslan@` (Istanbul), `emre.sahin@` (Izmir) `healthly.com` | `Doctor123!` | Doctor profiles to choose from in `GET /api/care/suggestions`; no patients until someone requests them |
 | Admin | `admin@healthly.com` | `Admin123!` | **Healthly Admin**, Izmir — cholesterol and glucose slowly rising out of range (an example of a worsening trend). Full user management |
-| LabStaff | `lab@healthly.com` | `Lab123!` | **Deniz Lab**, staff of *Healthly Partner Lab — Istanbul*. Website only (`/lab`): finds patients by Healthly ID, uploads and confirms their reports |
+| LabStaff | `lab@healthly.com` | `Lab123!` | **Deniz Lab**, staff of *Healthly Partner Lab — Istanbul* (Elif Kaya is connected to it). Website only (`/lab`): patient requests, finds patients by Healthly ID, uploads and confirms their reports |
+
+Demo laboratories for suggestions: *Bosphorus Diagnostics* (Istanbul), *Anatolia Lab Center* (Ankara), *Aegean Lab* (Izmir).
 
 **Lab history (all three accounts):** 6 lab reports, one per month for the last 6 months (the latest one week before
 the API first started), each with **Glucose** (mmol/L), **Cholesterol** (mmol/L) and **Hemoglobin** (g/L) — so
@@ -559,12 +562,13 @@ and on every point of `GET /api/users/{id}/trends`. Show critical values in red 
 
 | Method | Path | Doctor | Admin | Purpose |
 |---|---|:-:|:-:|---|
-| `GET` | `/api/users?role=Patient` | ✅ | ✅ | List users (sorted by id). `role` filter is optional |
-| `GET` | `/api/users/{id}` | ✅ | ✅ | Any user's profile |
-| `GET` | `/api/users/{id}/report` · `/trends` · `/documents` | ✅ | ✅ | Any patient's records — same endpoints as the patient |
-| `GET` | `/api/documents/{id}` · `/file` | ✅ | ✅ | Any document |
-| `PUT` | `/api/documents/{id}/status` | ✅ | ✅ | **Moderation**: change document status |
-| `POST` | `/api/documents/{id}/results` · `PUT/DELETE /api/results/{id}` | ✅ | ✅ | Enter / correct a patient's results |
+| `GET` | `/api/users?role=Patient` | own patients | ✅ | List users (sorted by id). A doctor gets **only patients with an active care connection** |
+| `GET` | `/api/users/{id}` | own patients | ✅ | User profile |
+| `GET` | `/api/users/{id}/report` · `/trends` · `/documents` | own patients | ✅ | Patient's records — same endpoints as the patient |
+| `GET` | `/api/documents/{id}` · `/file` | own patients | ✅ | Document |
+| `PUT` | `/api/documents/{id}/status` | own patients | ✅ | **Moderation**: change document status |
+| `POST` | `/api/documents/{id}/results` · `PUT/DELETE /api/results/{id}` | own patients | ✅ | Enter / correct a patient's results |
+| `GET/POST` | `/api/care/connections…` | ✅ | ✅ (read) | Care requests — see "Care team" below |
 | `POST` | `/api/users` | ❌ | ✅ | Create a user with any role (a `Patient` needs `dateOfBirth` and `gender`) |
 | `PUT` | `/api/users/{id}` | ❌ (own only) | ✅ | Edit any user, incl. `role` and `password` |
 | `DELETE` | `/api/users/{id}` | ❌ | ✅ | Delete a user with all their documents (not yourself) |
@@ -601,6 +605,70 @@ Rows with `isReviewed: false` are **drafts** — show a "Draft" label and do not
 `sex` is `Any`, `Female` or `Male`; `null` bounds mean "no limit" (e.g. cholesterol has only `maxNormal`).
 Ordered by category, metric, sex and age.
 
+### Care team — doctors and laboratories (`/api/care`)
+
+A patient chooses a doctor and a laboratory **in their city**; providers answer; only then the patient decides what to share.
+
+```
+Patient                         Doctor / lab staff                 Patient
+POST /api/care/connections  →   POST /{id}/accept   (or /decline)  →  POST /{id}/confirm   (or /{id}/end)
+status: Requested               status: Accepted                       status: Active
+```
+
+- **Doctor + `Active`** → the doctor can read the patient's records (`/api/users/{id}`, `/report`, `/trends`,
+  `/documents`, documents, results). Before that — `403`. `GET /api/users` for a doctor returns **only** such patients.
+- **Laboratory + `Active`** → the patient appears in the lab's list with their Healthly ID (`patient.patientCode`) so
+  staff can upload a report (`POST /api/lab/patients/{code}/documents`). The laboratory **never** gets read access to
+  the patient's records. Walk-in patients can still be found by Healthly ID as before.
+- Either side ends it with `POST /{id}/end` (patient: withdraw / refuse / stop sharing; provider: end) → access is gone immediately.
+- Every step creates a notification for the other side and an audit record.
+
+| Method | Path | Who | Purpose |
+|---|---|---|---|
+| `GET` | `/api/care/suggestions?city=` | Patient | Doctors and labs in the city (default: profile city) that accept patients, **fewest patients first** (`patientCount`) |
+| `GET` | `/api/care/connections` | any | Patient: own · Doctor: to them · Lab staff: their lab · Admin: all (`?patientId=`) |
+| `POST` | `/api/care/connections` | Patient | `{ "doctorId": 7 }` **or** `{ "laboratoryId": 2 }`, optional `"message"` (≤ 300). Max 5 waiting requests; duplicate → `409` |
+| `POST` | `/api/care/connections/{id}/accept` | Doctor, Lab staff | `Requested → Accepted` |
+| `POST` | `/api/care/connections/{id}/decline` | Doctor, Lab staff | `Requested → Declined`, optional `{ "note": "…" }` |
+| `POST` | `/api/care/connections/{id}/confirm` | Patient | `Accepted → Active` (share records / allow the lab) |
+| `POST` | `/api/care/connections/{id}/end` | Patient, Doctor, Lab staff | → `Cancelled` (before Active) or `Ended` (after) |
+
+Statuses: `Requested`, `Accepted`, `Active` are open (one open connection per patient + provider); `Declined`,
+`Cancelled`, `Ended` are closed. A wrong transition (e.g. confirm before accept) → `409`.
+
+```json
+{
+  "id": 3, "providerType": "Doctor", "status": "Accepted",
+  "patient": { "id": 31, "fullName": "Elif Kaya", "city": "Istanbul", "gender": "Female", "age": 34, "patientCode": null },
+  "provider": { "id": 40, "name": "Dr. Ayşe Demir", "subtitle": "Endocrinologist · Moda Medical Center", "city": "Istanbul", "details": "Focuses on…" },
+  "patientMessage": "Thyroid check", "providerNote": "",
+  "requestedAt": "2026-11-20T09:12:00Z", "respondedAt": "2026-11-20T09:20:00Z", "confirmedAt": null, "endedAt": null
+}
+```
+
+**Suggested UX for the app:** after registration show "Choose your doctor and laboratory" (skippable); when a
+`CareRequestAccepted` notification arrives, show a dialog "Share your medical records with Dr. …?" → `confirm` / `end`.
+
+### Notifications (`/api/notifications`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/notifications?unreadOnly=` | Latest 50, newest first |
+| `GET` | `/api/notifications/unread-count` | `{ "count": 2 }` — cheap to poll (the website polls every minute) |
+| `POST` | `/api/notifications/{id}/read` | Mark one as read |
+| `POST` | `/api/notifications/read-all` | Mark all as read |
+
+`type`: `CareRequestReceived`, `CareRequestAccepted`, `CareRequestDeclined`, `CareSharingConfirmed`,
+`CareConnectionEnded`. `title`/`body` are ready-to-show English text; `actorName` is the other side's name (for your
+own translations); `link` is a website path (`/care`, `/lab`, `/admin/users/31`) — map it to a screen.
+
+### Doctor profile and laboratory description
+
+- Doctors: `specialty`, `workplace`, `bio`, `languages`, `acceptingPatients` in `UserResponse`; editable by the
+  doctor (`PUT /api/users/{id}`, `null` = keep) or Admin. The doctor's `city` decides where they are suggested.
+- Laboratories: `description`, `openingHours`, `phone`, `acceptingPatients`, `patientCount` in `LaboratoryResponse`;
+  Admin edits with `PUT /api/laboratories/{id}`.
+
 ### Create user — `POST /api/users` (Admin)
 
 ```json
@@ -615,9 +683,11 @@ Ordered by category, metric, sex and age.
 |---|:-:|:-:|:-:|
 | Register / log in | ✅ | ✅ | ✅ |
 | Read **own** profile, report, trends, documents, results | ✅ | ✅ | ✅ |
-| Read **other users'** data | ❌ `403` | ✅ | ✅ |
-| Upload documents and edit results for a user | own only | any | any |
-| Change document status | ❌ | ✅ | ✅ |
+| Read **other users'** data | ❌ `403` | **own patients only** (active care connection), else `403` | ✅ |
+| Upload documents and edit results for a user | own only | own patients | any |
+| Change document status | ❌ | own patients | ✅ |
+| Choose a doctor / laboratory, confirm sharing | ✅ | — | — |
+| Accept / decline a patient's request | — | ✅ (requests to them) | read only |
 | Delete a document | own only | ❌ | ✅ |
 | Edit a profile | own only (no role/password) | own only (no role/password) | any, incl. role and password |
 | List / create / delete users | ❌ | list only | ✅ |

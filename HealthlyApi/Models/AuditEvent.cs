@@ -26,4 +26,11 @@ public static class AuditActions
     public const string DocumentAnalyzed = "DocumentAnalyzed";
     public const string AnalysisConfirmed = "AnalysisConfirmed";
     public const string DocumentDeleted = "DocumentDeleted";
+
+    // Связи пациент ↔ врач / лаборатория (кто кому открыл или закрыл доступ — нужно для KVKK)
+    public const string CareRequested = "CareRequested";
+    public const string CareAccepted = "CareAccepted";
+    public const string CareDeclined = "CareDeclined";
+    public const string CareSharingConfirmed = "CareSharingConfirmed";
+    public const string CareEnded = "CareEnded";
 }

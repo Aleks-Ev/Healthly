@@ -5,13 +5,14 @@
 import { Suspense, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { BookOpenCheck, Building2, FlaskConical, LayoutDashboard, LogOut, Menu, Users, X } from 'lucide-react';
+import { BookOpenCheck, Building2, FlaskConical, HeartHandshake, LayoutDashboard, LogOut, Menu, Users, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { RoleBadge } from '@/components/ui/Badge';
 import LanguageSwitcher from '@/components/ui/LanguageSwitcher';
 import { useI18n } from '@/lib/i18n';
 import type { Dictionary } from '@/locales/en';
 import Logo from './Logo';
+import NotificationBell from './NotificationBell';
 import RequireAuth from './RequireAuth';
 import type { Role } from '@/types/api';
 
@@ -24,8 +25,14 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', label: 'myHealth', icon: LayoutDashboard, roles: ['Patient', 'Doctor', 'Admin'] },
+  // «Команда здоровья»: пациент выбирает врача/лабораторию, врач отвечает на запросы, админ видит все связи
+  { href: '/care', label: 'careTeam', icon: HeartHandshake, roles: ['Patient'] },
+  { href: '/care', label: 'patientRequests', icon: HeartHandshake, roles: ['Doctor'] },
   { href: '/lab', label: 'laboratory', icon: FlaskConical, roles: ['LabStaff'] },
-  { href: '/admin/users', label: 'users', icon: Users, roles: ['Doctor', 'Admin'] },
+  // Врач видит в списке только своих пациентов (API фильтрует по активным связям)
+  { href: '/admin/users', label: 'myPatients', icon: Users, roles: ['Doctor'] },
+  { href: '/admin/users', label: 'users', icon: Users, roles: ['Admin'] },
+  { href: '/care', label: 'careConnections', icon: HeartHandshake, roles: ['Admin'] },
   { href: '/admin/reference-values', label: 'referenceValues', icon: BookOpenCheck, roles: ['Doctor', 'Admin'] },
   { href: '/admin/laboratories', label: 'laboratories', icon: Building2, roles: ['Admin'] },
 ];
@@ -67,17 +74,20 @@ export default function AppShell({ roles, children }: AppShellProps) {
 
           {user && (
             <div className="flex items-center gap-2">
+              <NotificationBell />
               <LanguageSwitcher className="hidden sm:block" />
               <div className="hidden xl:flex items-center gap-2 text-sm">
-                <span className="font-medium">{user.fullName}</span>
+                <span className="whitespace-nowrap font-medium">{user.fullName}</span>
                 <RoleBadge role={user.role} />
               </div>
               <button
                 onClick={handleLogout}
-                className="hidden lg:inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-[#6b756e] hover:bg-[#ebefe6] hover:text-[#242b26] transition"
+                aria-label={t.common.logOut}
+                title={t.common.logOut}
+                className="hidden lg:inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-2 text-sm text-[#6b756e] hover:bg-[#ebefe6] hover:text-[#242b26] transition"
               >
                 <LogOut className="w-4 h-4" />
-                {t.common.logOut}
+                <span className="hidden xl:inline">{t.common.logOut}</span>
               </button>
               <button
                 aria-label={isMenuOpen ? t.common.closeMenu : t.common.openMenu}
@@ -127,10 +137,10 @@ function NavLinks({ role, onNavigate }: { role?: Role; onNavigate: () => void })
     const isActive = pathname === href || pathname.startsWith(`${href}/`);
     return (
       <Link
-        key={href}
+        key={`${href}-${label}`}
         href={href}
         onClick={onNavigate}
-        className={`flex items-center gap-2 rounded-full px-3.5 py-2 text-sm transition ${isActive ? 'bg-[#dce8d8] text-[#3a5235] font-medium' : 'text-[#6b756e] hover:bg-[#ebefe6] hover:text-[#242b26]'}`}
+        className={`flex items-center gap-2 whitespace-nowrap rounded-full px-3 py-2 text-sm transition ${isActive ? 'bg-[#dce8d8] text-[#3a5235] font-medium' : 'text-[#6b756e] hover:bg-[#ebefe6] hover:text-[#242b26]'}`}
       >
         <Icon className="w-4 h-4" />
         {t.shell[label]}

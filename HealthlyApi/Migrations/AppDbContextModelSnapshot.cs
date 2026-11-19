@@ -75,6 +75,81 @@ namespace HealthlyApi.Migrations
                     b.ToTable("AuditEvents");
                 });
 
+            modelBuilder.Entity("HealthlyApi.Models.CareConnection", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("DoctorId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("EndedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("LaboratoryId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("PatientId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PatientMessage")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ProviderNote")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ProviderType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("RespondedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("RespondedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DoctorId", "Status");
+
+                    b.HasIndex("LaboratoryId", "Status");
+
+                    b.HasIndex("PatientId", "DoctorId")
+                        .IsUnique()
+                        .HasFilter("\"DoctorId\" IS NOT NULL AND \"Status\" IN ('Requested', 'Accepted', 'Active')");
+
+                    b.HasIndex("PatientId", "LaboratoryId")
+                        .IsUnique()
+                        .HasFilter("\"LaboratoryId\" IS NOT NULL AND \"Status\" IN ('Requested', 'Accepted', 'Active')");
+
+                    b.ToTable("CareConnections", t =>
+                        {
+                            t.HasCheckConstraint("CK_CareConnections_Provider", "(\"DoctorId\" IS NOT NULL AND \"LaboratoryId\" IS NULL) OR (\"DoctorId\" IS NULL AND \"LaboratoryId\" IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("HealthlyApi.Models.DocumentAnalysis", b =>
                 {
                     b.Property<int>("Id")
@@ -135,6 +210,11 @@ namespace HealthlyApi.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<bool>("AcceptingPatients")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.Property<string>("Address")
                         .IsRequired()
                         .HasMaxLength(300)
@@ -148,10 +228,25 @@ namespace HealthlyApi.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<string>("OpeningHours")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.HasKey("Id");
 
@@ -208,6 +303,60 @@ namespace HealthlyApi.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("MedicalDocuments");
+                });
+
+            modelBuilder.Entity("HealthlyApi.Models.Notification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ActorName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int?>("CareConnectionId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Link")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CareConnectionId");
+
+                    b.HasIndex("UserId", "ReadAt");
+
+                    b.ToTable("Notifications");
                 });
 
             modelBuilder.Entity("HealthlyApi.Models.ReferenceMedicalValue", b =>
@@ -381,9 +530,19 @@ namespace HealthlyApi.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<bool>("AcceptingPatients")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.Property<string>("AccessCode")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Bio")
+                        .IsRequired()
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)");
 
                     b.Property<string>("City")
                         .IsRequired()
@@ -420,6 +579,11 @@ namespace HealthlyApi.Migrations
                     b.Property<int?>("LaboratoryId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Languages")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<bool>("MarketingOptIn")
                         .HasColumnType("boolean");
 
@@ -441,8 +605,18 @@ namespace HealthlyApi.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("Specialty")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<double?>("Weight")
                         .HasColumnType("double precision");
+
+                    b.Property<string>("Workplace")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.HasKey("Id");
 
@@ -455,6 +629,31 @@ namespace HealthlyApi.Migrations
                         .IsUnique();
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("HealthlyApi.Models.CareConnection", b =>
+                {
+                    b.HasOne("HealthlyApi.Models.User", "Doctor")
+                        .WithMany()
+                        .HasForeignKey("DoctorId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("HealthlyApi.Models.Laboratory", "Laboratory")
+                        .WithMany()
+                        .HasForeignKey("LaboratoryId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("HealthlyApi.Models.User", "Patient")
+                        .WithMany()
+                        .HasForeignKey("PatientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Doctor");
+
+                    b.Navigation("Laboratory");
+
+                    b.Navigation("Patient");
                 });
 
             modelBuilder.Entity("HealthlyApi.Models.DocumentAnalysis", b =>
@@ -482,6 +681,24 @@ namespace HealthlyApi.Migrations
                         .IsRequired();
 
                     b.Navigation("Laboratory");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("HealthlyApi.Models.Notification", b =>
+                {
+                    b.HasOne("HealthlyApi.Models.CareConnection", "CareConnection")
+                        .WithMany()
+                        .HasForeignKey("CareConnectionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("HealthlyApi.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CareConnection");
 
                     b.Navigation("User");
                 });

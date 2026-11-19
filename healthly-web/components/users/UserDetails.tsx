@@ -30,7 +30,7 @@ export default function UserDetails() {
     <div className="space-y-6">
       <Link href="/admin/users" className="inline-flex items-center gap-1.5 text-sm text-[#6b756e] hover:text-[#242b26]">
         <ArrowLeft className="w-4 h-4" />
-        All users
+        {isAdmin ? 'All users' : 'My patients'}
       </Link>
 
       {loadError && <Alert>{loadError}</Alert>}

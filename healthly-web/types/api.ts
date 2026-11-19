@@ -24,6 +24,12 @@ export interface User {
   // Для LabStaff — лаборатория сотрудника
   laboratoryId: number | null;
   laboratoryName: string | null;
+  // Профиль врача — пустые строки у других ролей
+  specialty: string;
+  workplace: string;
+  bio: string;
+  languages: string;
+  acceptingPatients: boolean;
 }
 
 // Ответ входа, регистрации и POST /api/auth/refresh
@@ -84,6 +90,12 @@ export interface CreateUserRequest {
   role: Role;
   // Обязательна для LabStaff
   laboratoryId?: number | null;
+  // Профиль врача (виден пациентам при выборе врача); null — не менять
+  specialty?: string | null;
+  workplace?: string | null;
+  bio?: string | null;
+  languages?: string | null;
+  acceptingPatients?: boolean | null;
 }
 
 // role и password отправляет только Admin; null — не менять
@@ -101,6 +113,12 @@ export interface UpdateUserRequest {
   password?: string | null;
   // Только Admin; для LabStaff обязательна
   laboratoryId?: number | null;
+  // Профиль врача (виден пациентам при выборе врача); null — не менять
+  specialty?: string | null;
+  workplace?: string | null;
+  bio?: string | null;
+  languages?: string | null;
+  acceptingPatients?: boolean | null;
 }
 
 export interface MedicalDocument {
@@ -236,12 +254,22 @@ export interface Laboratory {
   city: string;
   address: string;
   staffCount: number;
+  // Для пациентов, выбирающих лабораторию
+  description: string;
+  openingHours: string;
+  phone: string;
+  acceptingPatients: boolean;
+  patientCount: number; // пациентов с активной связью
 }
 
 export interface LaboratoryRequest {
   name: string;
   city: string;
   address?: string | null;
+  description?: string | null;
+  openingHours?: string | null;
+  phone?: string | null; // +90 и 10 цифр
+  acceptingPatients: boolean;
 }
 
 // GET /api/lab/patients/{code} — только то, что нужно, чтобы убедиться, что это тот самый пациент
@@ -302,4 +330,95 @@ export interface ReferenceValue {
   isReviewed: boolean;
   reviewedBy: string | null;
   reviewedAt: string | null;
+}
+
+// --- Команда здоровья: связи пациент ↔ врач / лаборатория (/api/care) ---
+
+export type CareProviderType = 'Doctor' | 'Laboratory';
+// Requested → Accepted (врач/лаборатория приняли) → Active (пациент поделился); Declined / Cancelled / Ended — закрыты
+export type CareConnectionStatus = 'Requested' | 'Accepted' | 'Active' | 'Declined' | 'Cancelled' | 'Ended';
+
+export interface DoctorSuggestion {
+  id: number;
+  fullName: string;
+  specialty: string;
+  workplace: string;
+  city: string;
+  bio: string;
+  languages: string;
+  patientCount: number;
+}
+
+export interface LaboratorySuggestion {
+  id: number;
+  name: string;
+  city: string;
+  address: string;
+  description: string;
+  openingHours: string;
+  phone: string;
+  patientCount: number;
+}
+
+// Списки уже отсортированы API: сначала менее загруженные
+export interface CareSuggestions {
+  city: string;
+  doctors: DoctorSuggestion[];
+  laboratories: LaboratorySuggestion[];
+}
+
+export interface CarePatient {
+  id: number;
+  fullName: string;
+  city: string;
+  gender: string;
+  age: number | null;
+  patientCode: string | null; // только при активной связи
+}
+
+export interface CareProvider {
+  id: number;
+  name: string;
+  subtitle: string; // врач: «специальность · место работы»; лаборатория: адрес
+  city: string;
+  details: string;  // о себе / описание лаборатории
+}
+
+export interface CareConnection {
+  id: number;
+  providerType: CareProviderType;
+  status: CareConnectionStatus;
+  patient: CarePatient;
+  provider: CareProvider;
+  patientMessage: string;
+  providerNote: string;
+  requestedAt: string;
+  respondedAt: string | null;
+  confirmedAt: string | null;
+  endedAt: string | null;
+}
+
+export interface CreateCareConnectionRequest {
+  doctorId?: number | null;
+  laboratoryId?: number | null;
+  message?: string | null;
+}
+
+export type NotificationType =
+  | 'CareRequestReceived'
+  | 'CareRequestAccepted'
+  | 'CareRequestDeclined'
+  | 'CareSharingConfirmed'
+  | 'CareConnectionEnded';
+
+export interface AppNotification {
+  id: number;
+  type: NotificationType | string;
+  actorName: string;
+  title: string; // готовый текст на английском
+  body: string;
+  link: string;  // путь на сайте: "/care", "/lab", "/admin/users/12"
+  careConnectionId: number | null;
+  createdAt: string;
+  readAt: string | null;
 }

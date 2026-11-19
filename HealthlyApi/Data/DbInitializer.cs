@@ -82,6 +82,7 @@ public static class DbInitializer
             await SeedDemoAccountsAsync(app.Logger, context, passwords, storage, resetHistory);
             await SeedDemoLaboratoryAsync(app.Logger, context, passwords);
             await PatientCodes.AssignMissingAsync(context);
+            await SeedCareDemoAsync(app.Logger, context, passwords);
         }
     }
 
@@ -113,6 +114,120 @@ public static class DbInitializer
         context.Users.Add(staff);
         await context.SaveChangesAsync();
         logger.LogInformation("Demo laboratory staff account created: {Email}", LabStaffEmail);
+    }
+
+    // Демо для «команды здоровья» (только Development): профиль демо-врача, ещё несколько врачей и лабораторий
+    // в разных городах (чтобы пациенту было из чего выбирать) и активные связи patient@ ↔ doctor@ и patient@ ↔ демо-лаборатория
+    // (иначе демо-врач после введения связей не видел бы ни одного пациента). Ничего не перезаписывает:
+    // профиль заполняется, только если пуст; аккаунты, лаборатории и связи создаются, только если их нет.
+    private static async Task SeedCareDemoAsync(ILogger logger, AppDbContext context, PasswordService passwords)
+    {
+        var demoDoctor = await context.Users.FirstOrDefaultAsync(u => u.Email == DoctorEmail);
+        if (demoDoctor != null && string.IsNullOrEmpty(demoDoctor.Specialty))
+        {
+            demoDoctor.Specialty = "Internal medicine";
+            demoDoctor.Workplace = "Çankaya Health Center";
+            demoDoctor.Bio = "Internist with 15 years of practice. Helps patients make sense of routine blood tests and long-term trends.";
+            demoDoctor.Languages = "Turkish, English";
+        }
+
+        (string Email, string Name, string Gender, string City, string Specialty, string Workplace, string Bio, string Languages)[] doctors =
+        [
+            ("ayse.demir@healthly.com", "Dr. Ayşe Demir", Genders.Female, TestingCities.Istanbul, "Endocrinologist", "Moda Medical Center",
+                "Focuses on diabetes, thyroid and metabolic health. Prefers clear plans and regular check-ins.", "Turkish, English"),
+            ("can.ozturk@healthly.com", "Dr. Can Öztürk", Genders.Male, TestingCities.Istanbul, "Cardiologist", "Bosphorus Heart Clinic",
+                "Heart health and cholesterol. Believes small, steady changes beat dramatic ones.", "Turkish, English, German"),
+            ("zeynep.arslan@healthly.com", "Dr. Zeynep Arslan", Genders.Female, TestingCities.Istanbul, "Family medicine", "Kadıköy Family Practice",
+                "Family doctor for adults of all ages; the first stop for any question about your results.", "Turkish"),
+            ("emre.sahin@healthly.com", "Dr. Emre Şahin", Genders.Male, TestingCities.Izmir, "Hematologist", "Alsancak Hematology Center",
+                "Anaemia, iron and blood count questions. Explains every number in plain words.", "Turkish, English"),
+        ];
+        foreach (var doctor in doctors)
+        {
+            if (await context.Users.AnyAsync(u => u.Email == doctor.Email))
+            {
+                continue;
+            }
+            var user = new User
+            {
+                Email = doctor.Email,
+                FullName = doctor.Name,
+                Role = Roles.Doctor,
+                Gender = doctor.Gender,
+                City = doctor.City,
+                Specialty = doctor.Specialty,
+                Workplace = doctor.Workplace,
+                Bio = doctor.Bio,
+                Languages = doctor.Languages,
+            };
+            user.PasswordHash = passwords.Hash(user, DoctorPassword);
+            context.Users.Add(user);
+            logger.LogInformation("Demo doctor created: {Email}", doctor.Email);
+        }
+
+        var partnerLab = await context.Laboratories.FirstOrDefaultAsync(l => l.Name == DemoLaboratoryName);
+        if (partnerLab != null && string.IsNullOrEmpty(partnerLab.Description))
+        {
+            partnerLab.Description = "Full blood panels, biochemistry and vitamins. Results usually within 24 hours; no appointment needed in the morning.";
+            partnerLab.OpeningHours = "Mon–Sat 07:30–18:00";
+            partnerLab.Phone = "+902125550101";
+        }
+
+        (string Name, string City, string Address, string Description, string Hours, string Phone)[] laboratories =
+        [
+            ("Bosphorus Diagnostics", TestingCities.Istanbul, "Barbaros Blvd. 45, Beşiktaş",
+                "Hormone, thyroid and cardiac panels with home sample collection on request.", "Mon–Fri 07:00–19:00, Sat 08:00–14:00", "+902125550202"),
+            ("Anatolia Lab Center", TestingCities.Ankara, "Atatürk Blvd. 120, Çankaya",
+                "Routine and extended blood tests; quiet morning slots for fasting tests.", "Mon–Sat 07:30–17:30", "+903125550303"),
+            ("Aegean Lab", TestingCities.Izmir, "Kıbrıs Şehitleri St. 18, Alsancak",
+                "Blood count, biochemistry and allergy tests close to the seafront.", "Mon–Sat 08:00–18:00", "+902325550404"),
+        ];
+        foreach (var laboratory in laboratories)
+        {
+            if (await context.Laboratories.AnyAsync(l => l.Name == laboratory.Name))
+            {
+                continue;
+            }
+            context.Laboratories.Add(new Laboratory
+            {
+                Name = laboratory.Name,
+                City = laboratory.City,
+                Address = laboratory.Address,
+                Description = laboratory.Description,
+                OpeningHours = laboratory.Hours,
+                Phone = laboratory.Phone,
+            });
+        }
+        await context.SaveChangesAsync();
+
+        // Связи демо-пациентки — только если у неё ещё нет ни одной (не трогаем то, что сделали руками)
+        var patient = await context.Users.FirstOrDefaultAsync(u => u.Email == PatientEmail);
+        if (patient == null || demoDoctor == null || await context.CareConnections.AnyAsync(c => c.PatientId == patient.Id))
+        {
+            return;
+        }
+        var now = DateTime.UtcNow;
+        context.CareConnections.Add(new CareConnection
+        {
+            PatientId = patient.Id,
+            ProviderType = CareProviderTypes.Doctor,
+            DoctorId = demoDoctor.Id,
+            Status = CareConnectionStatuses.Active,
+            RequestedAt = now, RespondedAt = now, ConfirmedAt = now, RespondedByUserId = demoDoctor.Id,
+        });
+        if (partnerLab != null)
+        {
+            context.CareConnections.Add(new CareConnection
+            {
+                PatientId = patient.Id,
+                ProviderType = CareProviderTypes.Laboratory,
+                LaboratoryId = partnerLab.Id,
+                Status = CareConnectionStatuses.Active,
+                RequestedAt = now, RespondedAt = now, ConfirmedAt = now,
+            });
+        }
+        await context.SaveChangesAsync();
+        logger.LogInformation("Demo care connections created for {Email}", PatientEmail);
     }
 
     // Справочник норм: Data/reference-values.csv → таблица ReferenceMedicalValues (во всех окружениях, при каждом запуске).

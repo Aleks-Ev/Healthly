@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import AuthLayout, { AuthSwitchLink } from '@/components/layout/AuthLayout';
 import RegisterForm from '@/components/auth/RegisterForm';
@@ -13,15 +13,27 @@ export default function RegisterPage() {
   const { t } = useI18n();
   const router = useRouter();
 
+  // true, пока идёт регистрация: появившийся user — это только что созданный аккаунт, его ведём на /care,
+  // а не в кабинет (иначе эффект ниже перебил бы переход)
+  const isRegistering = useRef(false);
+
+  // Уже вошли (открыли /register с активной сессией) — сразу в кабинет
   useEffect(() => {
-    if (user) {
+    if (user && !isRegistering.current) {
       router.replace('/dashboard');
     }
   }, [user, router]);
 
+  // После регистрации — сразу выбор врача и лаборатории (/care); там же можно «Skip for now»
   const handleRegister = async (data: RegisterRequest) => {
-    await register(data);
-    router.push('/dashboard');
+    isRegistering.current = true;
+    try {
+      await register(data);
+    } catch (err) {
+      isRegistering.current = false;
+      throw err;
+    }
+    router.push('/care');
   };
 
   return (

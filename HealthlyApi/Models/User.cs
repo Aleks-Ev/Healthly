@@ -29,4 +29,11 @@ public class User
     // Для роли LabStaff — лаборатория, от имени которой работает сотрудник
     public int? LaboratoryId { get; set; }
     public Laboratory? Laboratory { get; set; }
+
+    // Профиль врача — его видят пациенты при выборе врача (город — поле City выше)
+    public string Specialty { get; set; } = string.Empty;  // "Endocrinologist"
+    public string Workplace { get; set; } = string.Empty;  // клиника / больница
+    public string Bio { get; set; } = string.Empty;        // пара предложений о себе
+    public string Languages { get; set; } = string.Empty;  // "Turkish, English"
+    public bool AcceptingPatients { get; set; } = true;    // false — не показывать в предложениях
 }

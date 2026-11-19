@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using HealthlyApi.Data;
 using HealthlyApi.Dtos;
 using HealthlyApi.Services;
+using HealthlyApi.Services.Care;
 
 namespace HealthlyApi.Controllers;
 
@@ -13,16 +14,18 @@ namespace HealthlyApi.Controllers;
 public class ReportsController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly CareAccess _access;
 
-    public ReportsController(AppDbContext context)
+    public ReportsController(AppDbContext context, CareAccess access)
     {
         _context = context;
+        _access = access;
     }
 
     /// <summary>Get a user's health report</summary>
     /// <remarks>
     /// Counts of documents, results and out-of-range results, plus the latest value of each indicator
-    /// (grouped by test name, case-insensitive; out-of-range indicators first). Allowed for the owner, Doctor and Admin.
+    /// (grouped by test name, case-insensitive; out-of-range indicators first). Allowed for the owner, Admin and the patient's doctors (active care connection).
     /// </remarks>
     /// <response code="200">The report.</response>
     /// <response code="403">A patient requested another user's report.</response>
@@ -33,7 +36,7 @@ public class ReportsController : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<UserReportResponse>> GetReport(int userId)
     {
-        if (!User.CanAccessUser(userId))
+        if (!await _access.CanAccessUserAsync(User, userId))
         {
             return Forbid();
         }
@@ -90,7 +93,7 @@ public class ReportsController : ControllerBase
     /// <remarks>
     /// The history of each indicator, with points sorted by date (oldest first). Only numeric values are included.
     /// <c>referenceMin</c>/<c>referenceMax</c> are parsed from the reference range (<c>null</c> when that side has no bound).
-    /// A chart needs at least two points. Allowed for the owner, Doctor and Admin.
+    /// A chart needs at least two points. Allowed for the owner, Admin and the patient's doctors (active care connection).
     /// </remarks>
     /// <response code="200">One entry per indicator; the indicators with the most measurements come first.</response>
     /// <response code="403">A patient requested another user's trends.</response>
@@ -101,7 +104,7 @@ public class ReportsController : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<List<IndicatorTrend>>> GetTrends(int userId)
     {
-        if (!User.CanAccessUser(userId))
+        if (!await _access.CanAccessUserAsync(User, userId))
         {
             return Forbid();
         }

@@ -6,6 +6,7 @@ using HealthlyApi.Data;
 using HealthlyApi.Dtos;
 using HealthlyApi.Models;
 using HealthlyApi.Services;
+using HealthlyApi.Services.Care;
 using HealthlyApi.Services.Ai;
 
 namespace HealthlyApi.Controllers;
@@ -18,20 +19,22 @@ namespace HealthlyApi.Controllers;
 public class DocumentsController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly CareAccess _access;
     private readonly FileStorageService _storage;
     private readonly DocumentAnalysisService _analysis;
     private readonly AuditLog _audit;
 
-    public DocumentsController(AppDbContext context, FileStorageService storage, DocumentAnalysisService analysis, AuditLog audit)
+    public DocumentsController(AppDbContext context, FileStorageService storage, DocumentAnalysisService analysis, AuditLog audit, CareAccess access)
     {
         _context = context;
+        _access = access;
         _storage = storage;
         _analysis = analysis;
         _audit = audit;
     }
 
     /// <summary>List a user's documents</summary>
-    /// <remarks>Newest first. Allowed for the owner, Doctor and Admin.</remarks>
+    /// <remarks>Newest first. Allowed for the owner, Admin and the patient's doctors (active care connection).</remarks>
     /// <response code="200">The documents, with result and out-of-range counts.</response>
     /// <response code="403">A patient requested another user's documents.</response>
     [HttpGet("/api/users/{userId:int}/documents")]
@@ -39,7 +42,7 @@ public class DocumentsController : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<IEnumerable<DocumentResponse>>> GetUserDocuments(int userId)
     {
-        if (!User.CanAccessUser(userId))
+        if (!await _access.CanAccessUserAsync(User, userId))
         {
             return Forbid();
         }
@@ -64,7 +67,7 @@ public class DocumentsController : ControllerBase
     /// <summary>Upload a document (PDF, PNG or JPG, up to 10 MB)</summary>
     /// <remarks>
     /// <c>multipart/form-data</c> with a single field named <c>file</c>. The new document has status <c>Pending</c> and no test results;
-    /// results are added with <c>POST /api/documents/{documentId}/results</c>. Allowed for the owner, Doctor and Admin.
+    /// results are added with <c>POST /api/documents/{documentId}/results</c>. Allowed for the owner, Admin and the patient's doctors (active care connection).
     /// </remarks>
     /// <response code="201">Document uploaded.</response>
     /// <response code="400">No file, a wrong file type or a file over 10 MB.</response>
@@ -79,7 +82,7 @@ public class DocumentsController : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<DocumentDetailsResponse>> Upload(int userId, IFormFile file, CancellationToken cancellationToken)
     {
-        if (!User.CanAccessUser(userId))
+        if (!await _access.CanAccessUserAsync(User, userId))
         {
             return Forbid();
         }
@@ -132,7 +135,7 @@ public class DocumentsController : ControllerBase
             return DocumentNotFound();
         }
 
-        if (!User.CanAccessDocument(document))
+        if (!await _access.CanAccessDocumentAsync(User, document))
         {
             return Forbid();
         }
@@ -159,7 +162,7 @@ public class DocumentsController : ControllerBase
             return DocumentNotFound();
         }
 
-        if (!User.CanAccessDocument(document))
+        if (!await _access.CanAccessDocumentAsync(User, document))
         {
             return Forbid();
         }
@@ -310,7 +313,7 @@ public class DocumentsController : ControllerBase
             return (null, DocumentNotFound());
         }
 
-        return User.CanAccessDocument(document) ? (document, null) : (null, Forbid());
+        return await _access.CanAccessDocumentAsync(User, document, cancellationToken) ? (document, null) : (null, Forbid());
     }
 
     /// <summary>Change a document's processing status (Doctor, Admin)</summary>
@@ -320,10 +323,12 @@ public class DocumentsController : ControllerBase
     /// </remarks>
     /// <response code="200">The updated document.</response>
     /// <response code="400">Unknown status value.</response>
+    /// <response code="403">A doctor who is not this patient's doctor.</response>
     /// <response code="404">Document not found.</response>
     [HttpPut("{id:int}/status")]
     [Authorize(Roles = Roles.Staff)]
     [ProducesResponseType<DocumentDetailsResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<DocumentDetailsResponse>> UpdateStatus(int id, UpdateDocumentStatusRequest request)
@@ -335,6 +340,12 @@ public class DocumentsController : ControllerBase
         if (document == null)
         {
             return DocumentNotFound();
+        }
+
+        // Врач — только у документов своих пациентов
+        if (!await _access.CanAccessDocumentAsync(User, document))
+        {
+            return Forbid();
         }
 
         document.Status = request.Status;

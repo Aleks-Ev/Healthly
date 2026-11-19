@@ -167,9 +167,14 @@ npm run dev        # http://localhost:3000
 | Роль | Email | Пароль | Что внутри |
 |---|---|---|---|
 | Patient | `patient@healthly.com` | `Patient123!` | Elif Kaya, Стамбул. 6 анализов за последние 6 месяцев (глюкоза, холестерин, гемоглобин — выходят из отклонений к норме) + 1 документ «на проверке» |
-| Doctor | `doctor@healthly.com` | `Doctor123!` | Dr. Mehmet Yilmaz, Анкара. Своя история анализов, всё в норме |
+| Doctor | `doctor@healthly.com` | `Doctor123!` | Dr. Mehmet Yilmaz, Анкара, терапевт. Своя история анализов, всё в норме. Видит **только своих** пациентов — Elif Kaya связана с ним (меню *Patient requests* / *My patients*) |
+| Doctor (без истории) | `ayse.demir@`, `can.ozturk@`, `zeynep.arslan@` (Стамбул), `emre.sahin@` (Измир) `healthly.com` | `Doctor123!` | Врачи с заполненным профилем — их пациент видит на `/care` и может выбрать |
 | Admin | `admin@healthly.com` | `Admin123!` | Healthly Admin, Измир. Своя история анализов, холестерин растёт |
-| LabStaff | `lab@healthly.com` | `Lab123!` | Deniz Lab — сотрудник демо-лаборатории «Healthly Partner Lab — Istanbul». После входа — рабочее место `/lab`: найти пациента по Healthly ID (у `patient@` он в профиле), загрузить бланк, проанализировать и подтвердить |
+| LabStaff | `lab@healthly.com` | `Lab123!` | Deniz Lab — сотрудник демо-лаборатории «Healthly Partner Lab — Istanbul». После входа — рабочее место `/lab`: найти пациента по Healthly ID (у `patient@` он в профиле), загрузить бланк, проанализировать и подтвердить; внизу — запросы пациентов и «Connected patients» (Elif Kaya) с кнопкой *Upload report* |
+
+Демо-лаборатории для выбора на `/care`: Bosphorus Diagnostics (Стамбул), Anatolia Lab Center (Анкара), Aegean Lab (Измир).
+Как проверить «команду здоровья»: войти `patient@` → *Care team* → *Send request* врачу → выйти, войти этим врачом →
+колокольчик / *Patient requests* → *Accept* → снова `patient@` → *Share my records* → врач видит медкарту в *My patients*.
 
 - Аккаунт создаётся, **только если такого email ещё нет**; пароль существующего аккаунта не перезаписывается.
   Например, у владельца проекта `admin@healthly.com` был создан раньше — там другой пароль.

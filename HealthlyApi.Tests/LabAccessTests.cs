@@ -14,41 +14,59 @@ public class LabAccessTests
     [Fact]
     public void Lab_staff_can_open_documents_of_their_own_laboratory()
     {
-        Assert.True(Staff(LabA).CanAccessDocument(Document(laboratoryId: LabA)));
+        Assert.True(Staff(LabA).CanAccessDocument(Document(laboratoryId: LabA), isTreatingDoctor: false));
     }
 
     [Fact]
     public void Lab_staff_cannot_open_documents_of_another_laboratory()
     {
-        Assert.False(Staff(LabA).CanAccessDocument(Document(laboratoryId: LabB)));
+        Assert.False(Staff(LabA).CanAccessDocument(Document(laboratoryId: LabB), isTreatingDoctor: false));
     }
 
     [Fact]
     public void Lab_staff_cannot_open_documents_the_patient_uploaded_themselves()
     {
-        Assert.False(Staff(LabA).CanAccessDocument(Document(laboratoryId: null)));
-        Assert.False(Staff(LabA).CanAccessUser(PatientId)); // и медкарту пациента целиком
+        Assert.False(Staff(LabA).CanAccessDocument(Document(laboratoryId: null), isTreatingDoctor: false));
+        Assert.False(Staff(LabA).CanAccessUser(PatientId, isTreatingDoctor: false)); // и медкарту пациента целиком
     }
 
     [Fact]
     public void Lab_staff_without_a_laboratory_has_no_access()
     {
-        Assert.False(Principal(Roles.LabStaff, userId: 50).CanAccessDocument(Document(laboratoryId: LabA)));
+        Assert.False(Principal(Roles.LabStaff, userId: 50).CanAccessDocument(Document(laboratoryId: LabA), isTreatingDoctor: false));
     }
 
-    [Theory]
-    [InlineData(Roles.Doctor)]
-    [InlineData(Roles.Admin)]
-    public void Doctors_and_admins_keep_access(string role)
+    [Fact]
+    public void Admin_keeps_access_to_every_document()
     {
-        Assert.True(Principal(role, userId: 99).CanAccessDocument(Document(laboratoryId: LabA)));
+        Assert.True(Principal(Roles.Admin, userId: 99).CanAccessDocument(Document(laboratoryId: LabA), isTreatingDoctor: false));
+    }
+
+    // Врач видит медкарту только тех пациентов, которые поделились с ним данными (активная связь, CareAccess)
+    [Fact]
+    public void Doctor_sees_only_patients_who_shared_their_records()
+    {
+        var doctor = Principal(Roles.Doctor, userId: 99);
+
+        Assert.False(doctor.CanAccessUser(PatientId, isTreatingDoctor: false));
+        Assert.False(doctor.CanAccessDocument(Document(laboratoryId: LabA), isTreatingDoctor: false));
+        Assert.True(doctor.CanAccessUser(PatientId, isTreatingDoctor: true));
+        Assert.True(doctor.CanAccessDocument(Document(laboratoryId: null), isTreatingDoctor: true));
+    }
+
+    [Fact]
+    public void Treating_flag_gives_nothing_to_other_roles()
+    {
+        // Флаг «лечащий врач» не должен открывать данные пациенту или сотруднику лаборатории
+        Assert.False(Principal(Roles.Patient, userId: 11).CanAccessUser(PatientId, isTreatingDoctor: true));
+        Assert.False(Staff(LabA).CanAccessUser(PatientId, isTreatingDoctor: true));
     }
 
     [Fact]
     public void Patient_sees_own_documents_including_those_uploaded_by_a_lab()
     {
-        Assert.True(Principal(Roles.Patient, PatientId).CanAccessDocument(Document(laboratoryId: LabA)));
-        Assert.False(Principal(Roles.Patient, userId: 11).CanAccessDocument(Document(laboratoryId: LabA)));
+        Assert.True(Principal(Roles.Patient, PatientId).CanAccessDocument(Document(laboratoryId: LabA), isTreatingDoctor: false));
+        Assert.False(Principal(Roles.Patient, userId: 11).CanAccessDocument(Document(laboratoryId: LabA), isTreatingDoctor: false));
     }
 
     [Fact]

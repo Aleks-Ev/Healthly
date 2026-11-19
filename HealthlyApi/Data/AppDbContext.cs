@@ -18,6 +18,8 @@ public class AppDbContext : DbContext
     public DbSet<DocumentAnalysis> DocumentAnalyses => Set<DocumentAnalysis>();
     public DbSet<Laboratory> Laboratories => Set<Laboratory>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+    public DbSet<CareConnection> CareConnections => Set<CareConnection>();
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -85,6 +87,9 @@ public class AppDbContext : DbContext
             laboratory.Property(l => l.Name).HasMaxLength(200);
             laboratory.Property(l => l.City).HasMaxLength(50);
             laboratory.Property(l => l.Address).HasMaxLength(300);
+            laboratory.Property(l => l.Description).HasMaxLength(600);
+            laboratory.Property(l => l.OpeningHours).HasMaxLength(100);
+            laboratory.Property(l => l.Phone).HasMaxLength(20);
         });
 
         // Healthly ID уникален; лабораторию удалили — сотрудник и документы остаются, связь обнуляется
@@ -93,6 +98,52 @@ public class AppDbContext : DbContext
             user.HasIndex(u => u.PatientCode).IsUnique();
             user.Property(u => u.PatientCode).HasMaxLength(20);
             user.HasOne(u => u.Laboratory).WithMany().HasForeignKey(u => u.LaboratoryId).OnDelete(DeleteBehavior.SetNull);
+            // Профиль врача
+            user.Property(u => u.Specialty).HasMaxLength(100);
+            user.Property(u => u.Workplace).HasMaxLength(200);
+            user.Property(u => u.Bio).HasMaxLength(600);
+            user.Property(u => u.Languages).HasMaxLength(100);
+            // Значение по умолчанию true для старых строк; HasSentinel(true) — чтобы явное false при создании не подменялось умолчанием БД
+            user.Property(u => u.AcceptingPatients).HasDefaultValue(true).HasSentinel(true);
+        });
+
+        modelBuilder.Entity<Laboratory>().Property(l => l.AcceptingPatients).HasDefaultValue(true).HasSentinel(true);
+
+        // Связи пациент ↔ врач / лаборатория. Удалили любую сторону — связь удаляется вместе с ней.
+        // Частичные уникальные индексы: с одним врачом (лабораторией) у пациента не больше одной «открытой» связи
+        modelBuilder.Entity<CareConnection>(connection =>
+        {
+            connection.HasOne(c => c.Patient).WithMany().HasForeignKey(c => c.PatientId).OnDelete(DeleteBehavior.Cascade);
+            connection.HasOne(c => c.Doctor).WithMany().HasForeignKey(c => c.DoctorId).OnDelete(DeleteBehavior.Cascade);
+            connection.HasOne(c => c.Laboratory).WithMany().HasForeignKey(c => c.LaboratoryId).OnDelete(DeleteBehavior.Cascade);
+            connection.Property(c => c.ProviderType).HasMaxLength(20);
+            connection.Property(c => c.Status).HasMaxLength(20);
+            connection.Property(c => c.PatientMessage).HasMaxLength(300);
+            connection.Property(c => c.ProviderNote).HasMaxLength(300);
+            connection.HasIndex(c => new { c.PatientId, c.DoctorId })
+                .IsUnique()
+                .HasFilter("\"DoctorId\" IS NOT NULL AND \"Status\" IN ('Requested', 'Accepted', 'Active')");
+            connection.HasIndex(c => new { c.PatientId, c.LaboratoryId })
+                .IsUnique()
+                .HasFilter("\"LaboratoryId\" IS NOT NULL AND \"Status\" IN ('Requested', 'Accepted', 'Active')");
+            connection.HasIndex(c => new { c.DoctorId, c.Status });
+            connection.HasIndex(c => new { c.LaboratoryId, c.Status });
+            // Ровно одна сторона-«поставщик»: врач или лаборатория
+            connection.ToTable(t => t.HasCheckConstraint(
+                "CK_CareConnections_Provider",
+                "(\"DoctorId\" IS NOT NULL AND \"LaboratoryId\" IS NULL) OR (\"DoctorId\" IS NULL AND \"LaboratoryId\" IS NOT NULL)"));
+        });
+
+        modelBuilder.Entity<Notification>(notification =>
+        {
+            notification.HasOne(n => n.User).WithMany().HasForeignKey(n => n.UserId).OnDelete(DeleteBehavior.Cascade);
+            notification.HasOne(n => n.CareConnection).WithMany().HasForeignKey(n => n.CareConnectionId).OnDelete(DeleteBehavior.SetNull);
+            notification.HasIndex(n => new { n.UserId, n.ReadAt });
+            notification.Property(n => n.Type).HasMaxLength(50);
+            notification.Property(n => n.ActorName).HasMaxLength(200);
+            notification.Property(n => n.Title).HasMaxLength(200);
+            notification.Property(n => n.Body).HasMaxLength(500);
+            notification.Property(n => n.Link).HasMaxLength(200);
         });
         modelBuilder.Entity<MedicalDocument>(document =>
         {

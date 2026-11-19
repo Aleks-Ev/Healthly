@@ -19,4 +19,6 @@ public static class TestingCities
     public const string Adana = "Adana";
     public const string Gaziantep = "Gaziantep";
     public const string Konya = "Konya";
+
+    public static readonly string[] All = [Istanbul, Ankara, Izmir, Antalya, Bursa, Adana, Gaziantep, Konya];
 }
