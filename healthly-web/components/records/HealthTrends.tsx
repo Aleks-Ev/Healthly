@@ -1,29 +1,26 @@
 'use client';
 
-// Секция «Health Trends»: линейный график одного показателя во времени.
+// Секция «Health Trends»: линейный график одного показателя во времени (стиль виджета Figma «Progress, not perfection»).
 // У показателей разные единицы и масштабы (глюкоза ~5 ммоль/л, гемоглобин ~140 г/л), поэтому
-// на графике всегда один показатель (одна ось Y), а переключение — кнопками над графиком.
+// на графике всегда один показатель (одна ось Y), а переключение — сегментированными кнопками над графиком.
 // Если ни у одного показателя нет хотя бы двух измерений, показываем демо-график с призывом загрузить анализы.
+//
+// Принципы оформления (чтобы график выглядел спокойно и читался как медицинский):
+//   • линия — глубокий шалфей с мягкой заливкой вниз, без рамок и вертикальной сетки;
+//   • полоса нормы — светло-мятная, с тонкими пунктирными границами и подписью «Normal»;
+//   • обычные точки — полые (белые с обводкой), вне нормы — терракота, критические — тёмно-красные с ореолом;
+//   • подсказка — карточка с датой, крупным значением и статусом; курсор — тонкая пунктирная вертикаль;
+//   • выбор периода (All / 12 / 6 месяцев) и табличный вид тех же данных для доступности.
 
-import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, Table2, TrendingDown, TrendingUp, Upload } from 'lucide-react';
-import { CartesianGrid, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useId, useState } from 'react';
+import { AlertTriangle, CheckCircle2, LineChart as LineChartIcon, Table2, TrendingDown, TrendingUp, Upload } from 'lucide-react';
+import { Area, AreaChart, CartesianGrid, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { formatDate } from '@/lib/format';
 import { CriticalBadge } from '@/components/ui/Badge';
+import { CHART_COLORS, RangeScale } from '@/components/charts/primitives';
 import type { IndicatorTrend } from '@/types/api';
-
-// Цвета графика (линия — синий из проверенной палитры, отклонение — статусный «critical»)
-const COLORS = {
-  line: '#2a78d6',
-  abnormal: '#d03b3b',
-  critical: '#7f1d1d', // критическое значение — темнее и крупнее обычного отклонения
-  surface: '#ffffff',
-  band: '#f1ece2',
-  grid: '#ece7dd',
-  axis: '#8e9890',
-};
 
 interface ChartPoint {
   time: number;
@@ -31,6 +28,13 @@ interface ChartPoint {
   isAbnormal: boolean;
   isCritical: boolean;
 }
+
+type Period = 'all' | '12m' | '6m';
+const PERIODS: { value: Period; label: string; months: number | null }[] = [
+  { value: 'all', label: 'All time', months: null },
+  { value: '12m', label: '12 months', months: 12 },
+  { value: '6m', label: '6 months', months: 6 },
+];
 
 // Демо-данные для пустого состояния (выдуманные, помечены как «Sample data»)
 const DEMO_TREND: IndicatorTrend = {
@@ -60,11 +64,23 @@ interface HealthTrendsProps {
   isUploading: boolean;
 }
 
+// Точки за последние N месяцев (считая от последнего измерения, а не от сегодняшнего дня)
+function pointsInPeriod(trend: IndicatorTrend, months: number | null) {
+  if (months === null || trend.points.length === 0) {
+    return trend.points;
+  }
+  const last = new Date(trend.points[trend.points.length - 1].measuredAt);
+  const from = new Date(last);
+  from.setMonth(from.getMonth() - months);
+  return trend.points.filter((point) => new Date(point.measuredAt) >= from);
+}
+
 export default function HealthTrends({ trends, onUpload, isUploading }: HealthTrendsProps) {
   // Для графика нужны минимум две точки
   const chartable = trends.filter((trend) => trend.points.length >= 2);
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [isTableView, setIsTableView] = useState(false);
+  const [period, setPeriod] = useState<Period>('all');
 
   if (chartable.length === 0) {
     return <TrendsEmptyState singlePointCount={trends.length} onUpload={onUpload} isUploading={isUploading} />;
@@ -73,43 +89,84 @@ export default function HealthTrends({ trends, onUpload, isUploading }: HealthTr
   // Если выбранный показатель пропал (например, удалили документ) — берём первый
   const selected = chartable.find((trend) => trend.testName === selectedName) ?? chartable[0];
 
+  // Период, в котором осталось меньше двух точек, недоступен; выбранный «пустой» период → All time
+  const availablePeriods = PERIODS.filter((option) => pointsInPeriod(selected, option.months).length >= 2);
+  const activePeriod = availablePeriods.find((option) => option.value === period) ?? PERIODS[0];
+  const visibleTrend: IndicatorTrend = { ...selected, points: pointsInPeriod(selected, activePeriod.months) };
+
   return (
-    <Card
-      title="Health Trends"
-      actions={
-        <Button variant="ghost" size="sm" onClick={() => setIsTableView((value) => !value)} aria-pressed={isTableView}>
-          <Table2 className="w-3.5 h-3.5" />
-          {isTableView ? 'Show chart' : 'Show table'}
-        </Button>
-      }
-    >
-      <p className="-mt-2 mb-4 text-xs text-[#8e9890]">How your key indicators change over time. Only numeric results are shown.</p>
+    <Card>
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <TrendsHeading />
+        <div className="flex items-center gap-2">
+          {availablePeriods.length > 1 && (
+            <label className="relative">
+              <span className="sr-only">Period</span>
+              <select
+                value={activePeriod.value}
+                onChange={(event) => setPeriod(event.target.value as Period)}
+                className="appearance-none rounded-full border border-[#e3e6dd] bg-white py-1.5 pl-3.5 pr-8 text-xs font-medium text-[#2a302b] outline-none transition hover:bg-[#fbfbf8] focus-visible:ring-2 focus-visible:ring-[#737f69]/30"
+              >
+                {availablePeriods.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              <svg viewBox="0 0 12 12" className="pointer-events-none absolute right-3 top-1/2 h-2.5 w-2.5 -translate-y-1/2" aria-hidden>
+                <path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="#6c736c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </label>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => setIsTableView((value) => !value)} aria-pressed={isTableView}>
+            <Table2 className="w-3.5 h-3.5" />
+            {isTableView ? 'Chart' : 'Table'}
+          </Button>
+        </div>
+      </div>
 
       {chartable.length > 1 && (
-        <div className="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="Indicator">
-          {chartable.map((trend) => {
-            const isActive = trend.testName === selected.testName;
-            return (
-              <button
-                key={trend.testName}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => setSelectedName(trend.testName)}
-                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                  isActive ? 'border-[#242b26] bg-[#242b26] text-white' : 'border-[#e1e7dc] bg-white text-[#4a524c] hover:bg-[#f6f7f2]'
-                }`}
-              >
-                {trend.testName}
-              </button>
-            );
-          })}
+        <div className="no-scrollbar -mx-1 mb-6 overflow-x-auto px-1 pb-1">
+          <div className="inline-flex gap-1 rounded-full bg-[#eef0e9] p-1" role="tablist" aria-label="Indicator">
+            {chartable.map((trend) => {
+              const isActive = trend.testName === selected.testName;
+              const latest = trend.points[trend.points.length - 1];
+              return (
+                <button
+                  key={trend.testName}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => setSelectedName(trend.testName)}
+                  className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium transition ${
+                    isActive ? 'bg-white text-[#2a302b] shadow-[0_1px_2px_rgba(42,48,43,0.08),0_2px_8px_-4px_rgba(42,48,43,0.15)]' : 'text-[#6c736c] hover:text-[#2a302b]'
+                  }`}
+                >
+                  {/* Цвет точки — статус последнего измерения */}
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: latest.isCritical ? CHART_COLORS.critical : latest.isAbnormal ? CHART_COLORS.abnormal : CHART_COLORS.lineSoft }} />
+                  {trend.testName}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      <TrendSummary trend={selected} />
-      {isTableView ? <TrendTable trend={selected} /> : <TrendChart trend={selected} />}
+      <TrendSummary trend={visibleTrend} />
+      {isTableView ? <TrendTable trend={visibleTrend} /> : <TrendChart trend={visibleTrend} />}
     </Card>
+  );
+}
+
+function TrendsHeading() {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eef0e9]">
+        <LineChartIcon className="h-4 w-4 text-[#2a302b]" strokeWidth={1.75} />
+      </span>
+      <div>
+        <h2 className="text-base font-semibold leading-tight text-[#2a302b]">Health Trends</h2>
+        <p className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[#8e9890]">Your results over time · numeric only</p>
+      </div>
+    </div>
   );
 }
 
@@ -117,15 +174,18 @@ function TrendsEmptyState({ singlePointCount, onUpload, isUploading }: { singleP
   const hasSomeResults = singlePointCount > 0;
 
   return (
-    <Card title="Health Trends">
+    <Card>
+      <div className="mb-5">
+        <TrendsHeading />
+      </div>
       <div className="relative">
         {/* Демо-график приглушён и недоступен для мыши, чтобы его не приняли за настоящие данные */}
-        <div className="pointer-events-none select-none opacity-40 blur-[1px]" aria-hidden>
+        <div className="pointer-events-none select-none opacity-35 blur-[1px]" aria-hidden>
           <TrendChart trend={DEMO_TREND} />
         </div>
         <div className="absolute inset-0 flex items-center justify-center p-4">
-          <div className="max-w-sm rounded-2xl border border-[#ebe4d6] bg-[#fffdf9]/95 px-6 py-5 text-center shadow-lg shadow-[#8a7a5c]/10">
-            <span className="inline-flex rounded-full bg-[#f1ece2] px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-[#6b756e]">Sample data</span>
+          <div className="max-w-sm rounded-3xl border border-[#ebede6] bg-white/95 px-6 py-5 text-center shadow-[0_24px_48px_-28px_rgba(42,48,43,0.35)]">
+            <span className="inline-flex rounded-full bg-[#eef0e9] px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-[#6b756e]">Sample data</span>
             <h3 className="mt-3 text-base font-semibold text-[#242b26]">
               {hasSomeResults ? 'Add one more lab result to see your trends' : 'See how your health changes over time'}
             </h3>
@@ -145,31 +205,45 @@ function TrendsEmptyState({ singlePointCount, onUpload, isUploading }: { singleP
   );
 }
 
-// Последнее значение, изменение относительно предыдущего и референсный диапазон
+// Последнее значение крупно, изменение относительно предыдущего и шкала нормы
 function TrendSummary({ trend }: { trend: IndicatorTrend }) {
   const latest = trend.points[trend.points.length - 1];
   const previous = trend.points[trend.points.length - 2];
-  const delta = latest.value - previous.value;
+  const delta = previous ? latest.value - previous.value : 0;
   const DeltaIcon = delta >= 0 ? TrendingUp : TrendingDown;
+  const hasRange = trend.referenceMin !== null || trend.referenceMax !== null;
 
   return (
-    <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <div className="text-sm font-medium text-[#242b26]">{trend.testName}</div>
-        <div className="mt-1 flex items-baseline gap-2">
-          <span className="text-3xl font-semibold tabular-nums text-[#242b26]">{formatValue(latest.value)}</span>
+    <div className="mb-5 grid grid-cols-1 gap-5 sm:grid-cols-[1fr_minmax(200px,260px)] sm:items-end">
+      <div className="min-w-0">
+        <div className="text-xs text-[#6b756e]">{trend.testName} · latest</div>
+        <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className="font-serif-aesthetic text-[44px] leading-none tabular-nums text-[#2a302b]">{formatValue(latest.value)}</span>
           <span className="text-sm text-[#6b756e]">{trend.unit}</span>
           <StatusLabel isAbnormal={latest.isAbnormal} isCritical={latest.isCritical} />
         </div>
-        <div className="mt-1 flex items-center gap-1 text-xs text-[#6b756e]">
-          <DeltaIcon className="w-3.5 h-3.5" />
-          {delta === 0 ? 'No change' : `${delta > 0 ? '+' : '−'}${formatValue(Math.abs(delta))} ${trend.unit}`} since {formatDate(previous.measuredAt)}
-        </div>
+        {previous && (
+          <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-[#eef0e9] px-2.5 py-1 text-[11px] text-[#4a524c]">
+            <DeltaIcon className="h-3 w-3" />
+            {delta === 0 ? 'No change' : `${delta > 0 ? '+' : '−'}${formatValue(Math.abs(delta))} ${trend.unit}`} since {formatDate(previous.measuredAt)}
+          </div>
+        )}
       </div>
-      {trend.referenceRange && (
-        <div className="flex items-center gap-2 text-xs text-[#6b756e]">
-          <span className="inline-block h-3 w-5 rounded-sm" style={{ backgroundColor: COLORS.band }} />
-          Reference range: {trend.referenceRange} {trend.unit}
+
+      {hasRange && (
+        <div className="text-xs text-[#6b756e]">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span>Reference range</span>
+            <span className="tabular-nums text-[#2a302b]">{trend.referenceRange} {trend.unit}</span>
+          </div>
+          <RangeScale
+            value={latest.value}
+            min={trend.referenceMin}
+            max={trend.referenceMax}
+            isAbnormal={latest.isAbnormal}
+            isCritical={latest.isCritical}
+            label={`Latest ${formatValue(latest.value)} ${trend.unit}, reference ${trend.referenceRange}`}
+          />
         </div>
       )}
     </div>
@@ -181,26 +255,20 @@ function StatusLabel({ isAbnormal, isCritical }: { isAbnormal: boolean; isCritic
     return <CriticalBadge />;
   }
   return isAbnormal ? (
-    <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700">
-      <AlertTriangle className="w-3.5 h-3.5" />
+    <span className="inline-flex items-center gap-1 rounded-full bg-[#f6e6da] px-2 py-0.5 text-[11px] font-medium text-[#8a4a23]">
+      <AlertTriangle className="h-3 w-3" />
       Out of range
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1 text-xs font-medium text-[#3a5235]">
-      <CheckCircle2 className="w-3.5 h-3.5" />
+    <span className="inline-flex items-center gap-1 rounded-full bg-[#dfe8db] px-2 py-0.5 text-[11px] font-medium text-[#3d5340]">
+      <CheckCircle2 className="h-3 w-3" />
       Normal
     </span>
   );
 }
 
-function pointColor(point?: ChartPoint) {
-  if (point?.isCritical) {
-    return COLORS.critical;
-  }
-  return point?.isAbnormal ? COLORS.abnormal : COLORS.line;
-}
-
 function TrendChart({ trend }: { trend: IndicatorTrend }) {
+  const gradientId = useId().replace(/:/g, '');
   const data: ChartPoint[] = trend.points.map((point) => ({
     time: new Date(point.measuredAt).getTime(),
     value: point.value,
@@ -212,20 +280,47 @@ function TrendChart({ trend }: { trend: IndicatorTrend }) {
   const values = [...data.map((point) => point.value), trend.referenceMin, trend.referenceMax].filter((v): v is number => v !== null);
   const yTicks = niceTicks(Math.min(...values), Math.max(...values));
   const yDomain: [number, number] = [yTicks[0], yTicks[yTicks.length - 1]];
+  const hasBand = trend.referenceMin !== null || trend.referenceMax !== null;
+  // Если все точки в пределах одного года — без года в подписях
+  const sameYear = new Date(data[0].time).getFullYear() === new Date(data[data.length - 1].time).getFullYear();
 
   return (
-    <div className="h-64 w-full">
+    <div className="h-60 w-full sm:h-64">
       <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 600, height: 256 }}>
-        <LineChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-          <CartesianGrid vertical={false} stroke={COLORS.grid} />
-          {(trend.referenceMin !== null || trend.referenceMax !== null) && (
+        <AreaChart data={data} margin={{ top: 12, right: 12, bottom: 0, left: -8 }}>
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={CHART_COLORS.area} stopOpacity={0.2} />
+              <stop offset="100%" stopColor={CHART_COLORS.area} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid vertical={false} stroke={CHART_COLORS.grid} strokeDasharray="3 5" />
+          {hasBand && (
             <ReferenceArea
               y1={trend.referenceMin ?? yDomain[0]}
               y2={trend.referenceMax ?? yDomain[1]}
-              fill={COLORS.band}
-              fillOpacity={1}
+              fill={CHART_COLORS.band}
+              fillOpacity={0.55}
               stroke="none"
               ifOverflow="hidden"
+            />
+          )}
+          {trend.referenceMax !== null && (
+            <ReferenceLine
+              y={trend.referenceMax}
+              stroke={CHART_COLORS.bandEdge}
+              strokeDasharray="4 4"
+              ifOverflow="hidden"
+              label={{ value: 'Normal', position: 'insideTopRight', fill: '#7d8f78', fontSize: 10 }}
+            />
+          )}
+          {trend.referenceMin !== null && (
+            <ReferenceLine
+              y={trend.referenceMin}
+              stroke={CHART_COLORS.bandEdge}
+              strokeDasharray="4 4"
+              ifOverflow="hidden"
+              label={trend.referenceMax === null ? { value: 'Normal', position: 'insideBottomRight', fill: '#7d8f78', fontSize: 10 } : undefined}
             />
           )}
           <XAxis
@@ -233,37 +328,40 @@ function TrendChart({ trend }: { trend: IndicatorTrend }) {
             type="number"
             scale="time"
             domain={['dataMin', 'dataMax']}
-            padding={{ left: 16, right: 16 }}
-            tickFormatter={(time: number) => new Date(time).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
-            tick={{ fontSize: 11, fill: COLORS.axis }}
+            padding={{ left: 18, right: 18 }}
+            tickFormatter={(time: number) => new Date(time).toLocaleDateString('en-US', sameYear ? { month: 'short' } : { month: 'short', year: '2-digit' })}
+            tick={{ fontSize: 11, fill: CHART_COLORS.axis }}
             tickLine={false}
-            axisLine={{ stroke: COLORS.grid }}
-            minTickGap={24}
+            axisLine={false}
+            tickMargin={10}
+            minTickGap={28}
           />
           <YAxis
             domain={yDomain}
             ticks={yTicks}
             tickFormatter={formatValue}
-            tick={{ fontSize: 11, fill: COLORS.axis }}
+            tick={{ fontSize: 11, fill: CHART_COLORS.axis }}
             tickLine={false}
             axisLine={false}
-            width={44}
+            width={48}
           />
           <Tooltip
             content={<TrendTooltip unit={trend.unit} />}
-            cursor={{ stroke: COLORS.axis, strokeWidth: 1 }}
+            cursor={{ stroke: CHART_COLORS.axis, strokeWidth: 1, strokeDasharray: '3 4' }}
           />
-          <Line
+          <Area
             type="monotone"
             dataKey="value"
-            stroke={COLORS.line}
-            strokeWidth={2}
+            stroke={CHART_COLORS.line}
+            strokeWidth={2.25}
             strokeLinecap="round"
             strokeLinejoin="round"
+            fill={`url(#${gradientId})`}
             dot={renderDot}
             activeDot={renderActiveDot}
+            isAnimationActive={false}
           />
-        </LineChart>
+        </AreaChart>
       </ResponsiveContainer>
     </div>
   );
@@ -276,23 +374,33 @@ interface DotProps {
   payload?: ChartPoint;
 }
 
-// Точка с белым кольцом; отклонения от нормы — красные
+// Обычная точка — полая (не спорит с линией); вне нормы — терракотовая; критическая — тёмно-красная с ореолом
 function renderDot({ cx, cy, index, payload }: DotProps) {
-  return (
-    <circle
-      key={`dot-${index}`}
-      cx={cx}
-      cy={cy}
-      r={payload?.isCritical ? 6.5 : 4.5}
-      fill={pointColor(payload)}
-      stroke={COLORS.surface}
-      strokeWidth={2}
-    />
-  );
+  if (cx === undefined || cy === undefined) {
+    return <g key={`dot-${index}`} />;
+  }
+  if (payload?.isCritical) {
+    return (
+      <g key={`dot-${index}`}>
+        <circle cx={cx} cy={cy} r={10} fill={CHART_COLORS.critical} fillOpacity={0.14} />
+        <circle cx={cx} cy={cy} r={5} fill={CHART_COLORS.critical} stroke={CHART_COLORS.surface} strokeWidth={2} />
+      </g>
+    );
+  }
+  if (payload?.isAbnormal) {
+    return <circle key={`dot-${index}`} cx={cx} cy={cy} r={4.5} fill={CHART_COLORS.abnormal} stroke={CHART_COLORS.surface} strokeWidth={2} />;
+  }
+  return <circle key={`dot-${index}`} cx={cx} cy={cy} r={3.75} fill={CHART_COLORS.surface} stroke={CHART_COLORS.line} strokeWidth={2} />;
 }
 
 function renderActiveDot({ cx, cy, payload }: DotProps) {
-  return <circle cx={cx} cy={cy} r={6.5} fill={pointColor(payload)} stroke={COLORS.surface} strokeWidth={2} />;
+  const color = payload?.isCritical ? CHART_COLORS.critical : payload?.isAbnormal ? CHART_COLORS.abnormal : CHART_COLORS.line;
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={11} fill={color} fillOpacity={0.12} />
+      <circle cx={cx} cy={cy} r={5.5} fill={color} stroke={CHART_COLORS.surface} strokeWidth={2.5} />
+    </g>
+  );
 }
 
 interface TrendTooltipProps {
@@ -308,12 +416,13 @@ function TrendTooltip({ unit, active, payload }: TrendTooltipProps) {
   }
 
   return (
-    <div className="rounded-xl border border-[#e1e7dc] bg-white px-3 py-2 text-xs shadow-lg shadow-black/5">
-      <div className="text-[#6b756e]">{formatDate(new Date(point.time).toISOString())}</div>
-      <div className="mt-0.5 text-sm font-semibold text-[#242b26]">
-        {formatValue(point.value)} <span className="font-normal text-[#6b756e]">{unit}</span>
+    <div className="min-w-[132px] rounded-2xl border border-[#ebede6] bg-white/95 px-3.5 py-2.5 shadow-[0_12px_30px_-14px_rgba(42,48,43,0.35)] backdrop-blur">
+      <div className="text-[11px] text-[#8e9890]">{formatDate(new Date(point.time).toISOString())}</div>
+      <div className="mt-0.5 flex items-baseline gap-1">
+        <span className="font-serif-aesthetic text-2xl leading-none tabular-nums text-[#2a302b]">{formatValue(point.value)}</span>
+        <span className="text-xs text-[#6b756e]">{unit}</span>
       </div>
-      <div className="mt-1">
+      <div className="mt-1.5">
         <StatusLabel isAbnormal={point.isAbnormal} isCritical={point.isCritical} />
       </div>
     </div>
@@ -324,7 +433,7 @@ function TrendTooltip({ unit, active, payload }: TrendTooltipProps) {
 function TrendTable({ trend }: { trend: IndicatorTrend }) {
   return (
     <div className="overflow-x-auto -mx-5 sm:-mx-6">
-      <table className="w-full min-w-[420px] text-sm">
+      <table className="w-full min-w-[320px] text-sm">
         <thead>
           <tr className="text-left text-xs text-[#6b756e] border-b border-[#e1e7dc]">
             <th className="font-medium px-5 sm:px-6 py-2">Date</th>
@@ -335,8 +444,8 @@ function TrendTable({ trend }: { trend: IndicatorTrend }) {
         <tbody>
           {[...trend.points].reverse().map((point, index) => (
             <tr key={`${point.documentId}-${index}`} className="border-b border-[#e1e7dc] last:border-0">
-              <td className="px-5 sm:px-6 py-2.5">{formatDate(point.measuredAt)}</td>
-              <td className="px-3 py-2.5 tabular-nums">
+              <td className="px-5 sm:px-6 py-2.5 whitespace-nowrap">{formatDate(point.measuredAt)}</td>
+              <td className="px-3 py-2.5 tabular-nums whitespace-nowrap">
                 {formatValue(point.value)} <span className="text-[#6b756e]">{trend.unit}</span>
               </td>
               <td className="px-5 sm:px-6 py-2.5"><StatusLabel isAbnormal={point.isAbnormal} isCritical={point.isCritical} /></td>

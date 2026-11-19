@@ -1,7 +1,13 @@
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react';
+'use client';
 
-const CONTROL_CLASS =
-  'w-full rounded-xl border border-[#e1e7dc] bg-white px-3.5 py-2.5 text-sm text-[#242b26] placeholder:text-[#a3aba5] outline-none transition focus:border-[#72826c] focus:ring-2 focus:ring-[#72826c]/20 aria-[invalid=true]:border-red-400';
+import { useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
+
+// Поле в стиле макета Figma: высокое, кремовая заливка, тонкая граница, мягкий оливковый фокус
+export const CONTROL_CLASS =
+  'w-full rounded-xl border border-[#e3e6dc] bg-[#fdfdf9] px-4 py-3 text-[15px] text-[#2a302b] placeholder:text-[#a3aaa3] outline-none transition focus:border-[#8d9a84] focus:bg-white focus:ring-4 focus:ring-[#737f69]/10 aria-[invalid=true]:border-red-300 aria-[invalid=true]:bg-red-50/30';
+
+export const LABEL_CLASS = 'block text-sm font-medium text-[#2f3530]';
 
 interface WrapperProps {
   label: string;
@@ -11,12 +17,12 @@ interface WrapperProps {
   children: ReactNode;
 }
 
-function FieldWrapper({ label, id, error, hint, children }: WrapperProps) {
+export function FieldWrapper({ label, id, error, hint, children }: WrapperProps) {
   return (
-    <div className="space-y-1.5">
-      <label htmlFor={id} className="block text-xs font-medium text-[#6b756e]">{label}</label>
+    <div className="space-y-2">
+      <label htmlFor={id} className={LABEL_CLASS}>{label}</label>
       {children}
-      {error ? <p className="text-xs text-red-600">{error}</p> : hint && <p className="text-xs text-[#8e9890]">{hint}</p>}
+      {error ? <p className="text-xs text-red-600">{error}</p> : hint && <p className="text-xs text-[#6c736c]">{hint}</p>}
     </div>
   );
 }
@@ -32,6 +38,34 @@ export function TextField({ label, id, error, hint, ...props }: TextFieldProps) 
   return (
     <FieldWrapper label={label} id={id} error={error} hint={hint}>
       <input id={id} aria-invalid={Boolean(error)} className={CONTROL_CLASS} {...props} />
+    </FieldWrapper>
+  );
+}
+
+interface PasswordFieldProps extends Omit<TextFieldProps, 'type'> {
+  showLabel?: string;
+  hideLabel?: string;
+}
+
+// Пароль с кнопкой «показать» (глаз справа, как в макете)
+export function PasswordField({ label, id, error, hint, showLabel = 'Show password', hideLabel = 'Hide password', ...props }: PasswordFieldProps) {
+  const [isVisible, setIsVisible] = useState(false);
+  const Icon = isVisible ? EyeOff : Eye;
+
+  return (
+    <FieldWrapper label={label} id={id} error={error} hint={hint}>
+      <div className="relative">
+        <input id={id} type={isVisible ? 'text' : 'password'} aria-invalid={Boolean(error)} className={`${CONTROL_CLASS} pr-12`} {...props} />
+        <button
+          type="button"
+          onClick={() => setIsVisible((visible) => !visible)}
+          aria-label={isVisible ? hideLabel : showLabel}
+          aria-pressed={isVisible}
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-[#6c736c] transition hover:text-[#2a302b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#737f69]/30"
+        >
+          <Icon className="h-[18px] w-[18px]" strokeWidth={1.75} />
+        </button>
+      </div>
     </FieldWrapper>
   );
 }

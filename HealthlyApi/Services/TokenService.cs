@@ -66,20 +66,21 @@ public static class ClaimsPrincipalExtensions
     public static int? GetUserId(this ClaimsPrincipal principal) =>
         int.TryParse(principal.FindFirstValue(JwtRegisteredClaimNames.Sub), out var id) ? id : null;
 
-    public static bool IsStaff(this ClaimsPrincipal principal) =>
-        principal.IsInRole(Roles.Doctor) || principal.IsInRole(Roles.Admin);
-
-    // Доступ к данным пользователя: сам пользователь, Doctor или Admin
-    public static bool CanAccessUser(this ClaimsPrincipal principal, int userId) =>
-        principal.GetUserId() == userId || principal.IsStaff();
+    // Доступ к данным пользователя: сам пользователь, Admin или врач, которому пациент открыл доступ.
+    // isTreatingDoctor — есть ли у врача активная связь с этим пациентом (считает Services/Care/CareAccess по базе).
+    // Контроллеры вызывают CareAccess.CanAccessUserAsync, а не этот метод напрямую
+    public static bool CanAccessUser(this ClaimsPrincipal principal, int userId, bool isTreatingDoctor) =>
+        principal.GetUserId() == userId
+        || principal.IsInRole(Roles.Admin)
+        || (isTreatingDoctor && principal.IsInRole(Roles.Doctor));
 
     // Лаборатория сотрудника (claim "lab", только у LabStaff)
     public static int? GetLaboratoryId(this ClaimsPrincipal principal) =>
         int.TryParse(principal.FindFirstValue(TokenService.LaboratoryClaim), out var id) ? id : null;
 
-    // Доступ к документу: как к данным его владельца (сам, Doctor, Admin) или сотрудник лаборатории, которая его загрузила.
+    // Доступ к документу: как к данным его владельца (сам, Admin, врач пациента) или сотрудник лаборатории, которая его загрузила.
     // Сотрудник видит только документы своей лаборатории — не всю медкарту пациента
-    public static bool CanAccessDocument(this ClaimsPrincipal principal, MedicalDocument document) =>
-        principal.CanAccessUser(document.UserId)
+    public static bool CanAccessDocument(this ClaimsPrincipal principal, MedicalDocument document, bool isTreatingDoctor) =>
+        principal.CanAccessUser(document.UserId, isTreatingDoctor)
         || (principal.IsInRole(Roles.LabStaff) && document.LaboratoryId != null && principal.GetLaboratoryId() == document.LaboratoryId);
 }

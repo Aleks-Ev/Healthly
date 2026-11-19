@@ -8,5 +8,12 @@ public class Laboratory
     public string Name { get; set; } = string.Empty;
     public string City { get; set; } = string.Empty;    // TestingCities
     public string Address { get; set; } = string.Empty;
+
+    // Описание для пациентов, выбирающих лабораторию
+    public string Description { get; set; } = string.Empty;
+    public string OpeningHours { get; set; } = string.Empty; // "Mon–Sat 07:30–18:00"
+    public string Phone { get; set; } = string.Empty;
+    public bool AcceptingPatients { get; set; } = true;      // false — не показывать в предложениях
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

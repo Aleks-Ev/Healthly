@@ -5,6 +5,7 @@ using HealthlyApi.Data;
 using HealthlyApi.Dtos;
 using HealthlyApi.Models;
 using HealthlyApi.Services;
+using HealthlyApi.Services.Care;
 using HealthlyApi.Services.Ai;
 
 namespace HealthlyApi.Controllers;
@@ -18,10 +19,12 @@ namespace HealthlyApi.Controllers;
 public class TestResultsController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly CareAccess _access;
 
-    public TestResultsController(AppDbContext context)
+    public TestResultsController(AppDbContext context, CareAccess access)
     {
         _context = context;
+        _access = access;
     }
 
     /// <summary>Add a test result to a document</summary>
@@ -47,7 +50,7 @@ public class TestResultsController : ControllerBase
             return Problem(detail: "Document not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        if (!User.CanAccessDocument(document))
+        if (!await _access.CanAccessDocumentAsync(User, document))
         {
             return Forbid();
         }
@@ -88,7 +91,7 @@ public class TestResultsController : ControllerBase
             return ResultNotFound();
         }
 
-        if (!User.CanAccessDocument(result.MedicalDocument!))
+        if (!await _access.CanAccessDocumentAsync(User, result.MedicalDocument!))
         {
             return Forbid();
         }
@@ -117,7 +120,7 @@ public class TestResultsController : ControllerBase
             return ResultNotFound();
         }
 
-        if (!User.CanAccessDocument(result.MedicalDocument!))
+        if (!await _access.CanAccessDocumentAsync(User, result.MedicalDocument!))
         {
             return Forbid();
         }

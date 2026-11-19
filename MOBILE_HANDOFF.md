@@ -141,9 +141,12 @@ They exist only in local development databases.
 | Role | Email | Password | What's inside |
 |---|---|---|---|
 | Patient | `patient@healthly.com` | `Patient123!` | **Elif Kaya**, Istanbul. Glucose and cholesterol above normal, hemoglobin below — all back to normal by the latest test. Plus 1 `Pending` document (yesterday) waiting for a doctor |
-| Doctor | `doctor@healthly.com` | `Doctor123!` | **Dr. Mehmet Yilmaz**, Ankara — stable, normal results. Sees all patients and their records, can change document statuses |
+| Doctor | `doctor@healthly.com` | `Doctor123!` | **Dr. Mehmet Yilmaz**, Ankara, internal medicine — stable, normal results. Sees **only his patients**: Elif Kaya is connected to him (care team) |
+| Doctors (no history) | `ayse.demir@`, `can.ozturk@`, `zeynep.arslan@` (Istanbul), `emre.sahin@` (Izmir) `healthly.com` | `Doctor123!` | Doctor profiles to choose from in `GET /api/care/suggestions`; no patients until someone requests them |
 | Admin | `admin@healthly.com` | `Admin123!` | **Healthly Admin**, Izmir — cholesterol and glucose slowly rising out of range (an example of a worsening trend). Full user management |
-| LabStaff | `lab@healthly.com` | `Lab123!` | **Deniz Lab**, staff of *Healthly Partner Lab — Istanbul*. Website only (`/lab`): finds patients by Healthly ID, uploads and confirms their reports |
+| LabStaff | `lab@healthly.com` | `Lab123!` | **Deniz Lab**, staff of *Healthly Partner Lab — Istanbul* (Elif Kaya is connected to it). Website only (`/lab`): patient requests, finds patients by Healthly ID, uploads and confirms their reports |
+
+Demo laboratories for suggestions: *Bosphorus Diagnostics* (Istanbul), *Anatolia Lab Center* (Ankara), *Aegean Lab* (Izmir).
 
 **Lab history (all three accounts):** 6 lab reports, one per month for the last 6 months (the latest one week before
 the API first started), each with **Glucose** (mmol/L), **Cholesterol** (mmol/L) and **Hemoglobin** (g/L) — so
@@ -559,16 +562,18 @@ and on every point of `GET /api/users/{id}/trends`. Show critical values in red 
 
 | Method | Path | Doctor | Admin | Purpose |
 |---|---|:-:|:-:|---|
-| `GET` | `/api/users?role=Patient` | ✅ | ✅ | List users (sorted by id). `role` filter is optional |
-| `GET` | `/api/users/{id}` | ✅ | ✅ | Any user's profile |
-| `GET` | `/api/users/{id}/report` · `/trends` · `/documents` | ✅ | ✅ | Any patient's records — same endpoints as the patient |
-| `GET` | `/api/documents/{id}` · `/file` | ✅ | ✅ | Any document |
-| `PUT` | `/api/documents/{id}/status` | ✅ | ✅ | **Moderation**: change document status |
-| `POST` | `/api/documents/{id}/results` · `PUT/DELETE /api/results/{id}` | ✅ | ✅ | Enter / correct a patient's results |
+| `GET` | `/api/users?role=Patient` | own patients | ✅ | List users (sorted by id). A doctor gets **only patients with an active care connection** |
+| `GET` | `/api/users/{id}` | own patients | ✅ | User profile |
+| `GET` | `/api/users/{id}/report` · `/trends` · `/documents` | own patients | ✅ | Patient's records — same endpoints as the patient |
+| `GET` | `/api/documents/{id}` · `/file` | own patients | ✅ | Document |
+| `PUT` | `/api/documents/{id}/status` | own patients | ✅ | **Moderation**: change document status |
+| `POST` | `/api/documents/{id}/results` · `PUT/DELETE /api/results/{id}` | own patients | ✅ | Enter / correct a patient's results |
+| `GET/POST` | `/api/care/connections…` | ✅ | ✅ (read) | Care requests — see "Care team" below |
 | `POST` | `/api/users` | ❌ | ✅ | Create a user with any role (a `Patient` needs `dateOfBirth` and `gender`) |
 | `PUT` | `/api/users/{id}` | ❌ (own only) | ✅ | Edit any user, incl. `role` and `password` |
 | `DELETE` | `/api/users/{id}` | ❌ | ✅ | Delete a user with all their documents (not yourself) |
 | `DELETE` | `/api/documents/{id}` | ❌ | ✅ | Delete any document |
+| `GET` | `/api/reference-values` | ✅ | ✅ | Read-only reference table (norms) — see below |
 
 ### Moderation flow
 
@@ -578,6 +583,125 @@ and on every point of `GET /api/users/{id}/trends`. Show critical values in red 
 4. `PUT /api/documents/{id}/status` with `{ "status": "Processing" }` while working on it.
 5. Enter results: `POST /api/documents/{id}/results` for each value → the document becomes `Completed` automatically.
    If the file is unreadable: `{ "status": "Error" }`.
+
+### Reference values — `GET /api/reference-values` (Doctor, Admin)
+
+Read-only list of the norms the API uses to mark results as normal / out of range / critical. Patients and lab staff
+get `403`. The table is edited by medical advisors in `HealthlyApi/Data/reference-values.csv`, not via the API.
+Rows with `isReviewed: false` are **drafts** — show a "Draft" label and do not present them as verified.
+
+```json
+[
+  {
+    "id": 12, "metricName": "Glucose", "aliases": ["Fasting glucose", "GLU"],
+    "sex": "Any", "ageFrom": 18, "ageTo": null,
+    "minNormal": 3.9, "maxNormal": 5.6, "criticalLow": 2.5, "criticalHigh": 25,
+    "unit": "mmol/L", "category": "Biochemistry", "doctorSpecialty": "Endocrinologist",
+    "source": "ADA Standards of Care ...", "isReviewed": false, "reviewedBy": null, "reviewedAt": null
+  }
+]
+```
+
+`sex` is `Any`, `Female` or `Male`; `null` bounds mean "no limit" (e.g. cholesterol has only `maxNormal`).
+Ordered by category, metric, sex and age.
+
+### Care team — doctors and laboratories (`/api/care`)
+
+A patient chooses a doctor and a laboratory **in their city**; providers answer; only then the patient decides what to share.
+
+```
+Patient                         Doctor / lab staff                 Patient
+POST /api/care/connections  →   POST /{id}/accept   (or /decline)  →  POST /{id}/confirm   (or /{id}/end)
+status: Requested               status: Accepted                       status: Active
+```
+
+- **Doctor + `Active`** → the doctor can read the patient's records (`/api/users/{id}`, `/report`, `/trends`,
+  `/documents`, documents, results). Before that — `403`. `GET /api/users` for a doctor returns **only** such patients.
+- **Laboratory + `Active`** → the patient appears in the lab's list with their Healthly ID (`patient.patientCode`) so
+  staff can upload a report (`POST /api/lab/patients/{code}/documents`). The laboratory **never** gets read access to
+  the patient's records. Walk-in patients can still be found by Healthly ID as before.
+- Either side ends it with `POST /{id}/end` (patient: withdraw / refuse / stop sharing; provider: end) → access is gone immediately.
+- Every step creates a notification for the other side and an audit record.
+
+| Method | Path | Who | Purpose |
+|---|---|---|---|
+| `GET` | `/api/care/suggestions?city=` | Patient | Doctors and labs in the city (default: profile city) that accept patients, **fewest patients first** (`patientCount`) |
+| `GET` | `/api/care/connections` | any | Patient: own · Doctor: to them · Lab staff: their lab · Admin: all (`?patientId=`) |
+| `POST` | `/api/care/connections` | Patient | `{ "doctorId": 7 }` **or** `{ "laboratoryId": 2 }`, optional `"message"` (≤ 300). Max 5 waiting requests; duplicate → `409` |
+| `POST` | `/api/care/connections/{id}/accept` | Doctor, Lab staff | `Requested → Accepted` |
+| `POST` | `/api/care/connections/{id}/decline` | Doctor, Lab staff | `Requested → Declined`, optional `{ "note": "…" }` |
+| `POST` | `/api/care/connections/{id}/confirm` | Patient | `Accepted → Active` (share records / allow the lab) |
+| `POST` | `/api/care/connections/{id}/end` | Patient, Doctor, Lab staff | → `Cancelled` (before Active) or `Ended` (after) |
+
+Statuses: `Requested`, `Accepted`, `Active` are open (one open connection per patient + provider); `Declined`,
+`Cancelled`, `Ended` are closed. A wrong transition (e.g. confirm before accept) → `409`.
+
+```json
+{
+  "id": 3, "providerType": "Doctor", "status": "Accepted",
+  "patient": { "id": 31, "fullName": "Elif Kaya", "city": "Istanbul", "gender": "Female", "age": 34, "patientCode": null },
+  "provider": { "id": 40, "name": "Dr. Ayşe Demir", "subtitle": "Endocrinologist · Moda Medical Center", "city": "Istanbul", "details": "Focuses on…" },
+  "patientMessage": "Thyroid check", "providerNote": "",
+  "requestedAt": "2026-11-20T09:12:00Z", "respondedAt": "2026-11-20T09:20:00Z", "confirmedAt": null, "endedAt": null
+}
+```
+
+**Suggested UX for the app:** after registration show "Choose your doctor and laboratory" (skippable); when a
+`CareRequestAccepted` notification arrives, show a dialog "Share your medical records with Dr. …?" → `confirm` / `end`.
+
+### AI chat — "Healthly AI" (`/api/chat/messages`)
+
+Any logged-in user. The assistant answers only about **health** (evidence-based, FDA / TİTCK / WHO, no diagnoses,
+no prescription drugs or doses; triage: clarifying questions → "call 112 / Emergency Department" or "see a
+\<specialty\> doctor") and **the Healthly platform** (uploading results, Healthly ID, care team, partner labs and
+doctors). Anything else gets one of 10 fixed polite refusals. It replies in the language of the question (EN/TR).
+It sees only an anonymized profile (sex, age, height, weight) and the latest confirmed lab results — never the name,
+e-mail, phone, date of birth, city or Healthly ID.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/chat/messages` | `{ "messages": [...], "disclaimer": "…" }` — latest 100, oldest first |
+| `POST` | `/api/chat/messages` | `{ "content": "…" }` (1–2000 chars) → both saved messages + `model`, `isMock`, `disclaimer` |
+| `DELETE` | `/api/chat/messages` | Clear my history → `204` |
+
+```json
+{
+  "userMessage": { "id": 41, "role": "user", "content": "I burned my hand", "createdAt": "2026-11-20T09:00:00Z" },
+  "assistantMessage": { "id": 42, "role": "assistant", "content": "Cool the burn under running water…", "createdAt": "2026-11-20T09:00:00.001Z" },
+  "model": "gemini:gemini-3.5-flash",
+  "isMock": false,
+  "disclaimer": "Healthly AI can make mistakes. Always verify medical information and consult a qualified doctor."
+}
+```
+
+- **Show `disclaimer` under every assistant message** (small text). For Turkish UI:
+  "Healthly AI hata yapabilir. Tıbbi bilgileri her zaman doğrulayın ve yetkin bir doktora danışın."
+- Answers can take 5–40 s (if Gemini is busy the API switches to Groq) — show a "Healthly AI is thinking…" bubble
+  and use a request timeout of at least 120 s.
+- `429` — more than 10 messages a minute or 30 an hour (`Retry-After` in seconds). `503` — all AI providers are down;
+  **nothing was saved**, keep the text in the input so the user can resend. `400` — empty or too long message.
+- `content` uses light markdown: paragraphs, `- ` / `1. ` lists, `**bold**`. Render it as text (no HTML).
+- `isMock: true` — the server has no AI keys; answers come from a rule-based demo assistant (label it "Demo mode").
+
+### Notifications (`/api/notifications`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/notifications?unreadOnly=` | Latest 50, newest first |
+| `GET` | `/api/notifications/unread-count` | `{ "count": 2 }` — cheap to poll (the website polls every minute) |
+| `POST` | `/api/notifications/{id}/read` | Mark one as read |
+| `POST` | `/api/notifications/read-all` | Mark all as read |
+
+`type`: `CareRequestReceived`, `CareRequestAccepted`, `CareRequestDeclined`, `CareSharingConfirmed`,
+`CareConnectionEnded`. `title`/`body` are ready-to-show English text; `actorName` is the other side's name (for your
+own translations); `link` is a website path (`/care`, `/lab`, `/admin/users/31`) — map it to a screen.
+
+### Doctor profile and laboratory description
+
+- Doctors: `specialty`, `workplace`, `bio`, `languages`, `acceptingPatients` in `UserResponse`; editable by the
+  doctor (`PUT /api/users/{id}`, `null` = keep) or Admin. The doctor's `city` decides where they are suggested.
+- Laboratories: `description`, `openingHours`, `phone`, `acceptingPatients`, `patientCount` in `LaboratoryResponse`;
+  Admin edits with `PUT /api/laboratories/{id}`.
 
 ### Create user — `POST /api/users` (Admin)
 
@@ -593,9 +717,11 @@ and on every point of `GET /api/users/{id}/trends`. Show critical values in red 
 |---|:-:|:-:|:-:|
 | Register / log in | ✅ | ✅ | ✅ |
 | Read **own** profile, report, trends, documents, results | ✅ | ✅ | ✅ |
-| Read **other users'** data | ❌ `403` | ✅ | ✅ |
-| Upload documents and edit results for a user | own only | any | any |
-| Change document status | ❌ | ✅ | ✅ |
+| Read **other users'** data | ❌ `403` | **own patients only** (active care connection), else `403` | ✅ |
+| Upload documents and edit results for a user | own only | own patients | any |
+| Change document status | ❌ | own patients | ✅ |
+| Choose a doctor / laboratory, confirm sharing | ✅ | — | — |
+| Accept / decline a patient's request | — | ✅ (requests to them) | read only |
 | Delete a document | own only | ❌ | ✅ |
 | Edit a profile | own only (no role/password) | own only (no role/password) | any, incl. role and password |
 | List / create / delete users | ❌ | list only | ✅ |

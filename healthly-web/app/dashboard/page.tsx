@@ -7,6 +7,7 @@ import ProfileCard from '@/components/users/ProfileCard';
 import UserFormModal from '@/components/users/UserFormModal';
 import ChangePasswordModal from '@/components/users/ChangePasswordModal';
 import PatientRecords from '@/components/records/PatientRecords';
+import CareDecisionBanner from '@/components/care/CareDecisionBanner';
 import { homePath, useAuth } from '@/lib/auth';
 
 export default function DashboardPage() {
@@ -39,9 +40,11 @@ function Dashboard() {
   return (
     <>
       <div className="mb-6">
-        <h1 className="text-2xl sm:text-3xl font-semibold">Hello, {user.fullName.split(' ')[0]}</h1>
+        <h1 className="text-2xl sm:text-3xl font-semibold">Hello, {user.fullName.replace(/^dr\.?\s+/i, '').split(' ')[0]}</h1>
         <p className="mt-1 text-sm text-[#6b756e]">Your documents, test results and how they compare to reference ranges.</p>
       </div>
+
+      {user.role === 'Patient' && <CareDecisionBanner />}
 
       <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6 items-start">
         <ProfileCard user={user} onEdit={() => setIsEditing(true)} onChangePassword={() => setIsChangingPassword(true)} />

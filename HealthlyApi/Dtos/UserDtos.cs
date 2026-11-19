@@ -18,7 +18,13 @@ public record UserResponse(
     DateTime CreatedAt,
     string? PatientCode,      // Healthly ID пациента ("HL-7K3P9Q"): называет в лаборатории или показывает QR-код
     int? LaboratoryId,        // для LabStaff — лаборатория сотрудника
-    string? LaboratoryName);
+    string? LaboratoryName,
+    // Профиль врача (пустой у других ролей)
+    string Specialty,
+    string Workplace,
+    string Bio,
+    string Languages,
+    bool AcceptingPatients);
 
 // POST /api/users — создание пользователя администратором
 public class CreateUserRequest
@@ -59,6 +65,21 @@ public class CreateUserRequest
         TestingCities.Bursa, TestingCities.Adana, TestingCities.Gaziantep, TestingCities.Konya, "", null,
         ErrorMessage = "Select a city where you will be testing")]
     public string? City { get; set; }
+
+    // Профиль врача (виден пациентам при выборе врача); для других ролей не используется. null — не менять
+    [MaxLength(100)]
+    public string? Specialty { get; set; }
+
+    [MaxLength(200)]
+    public string? Workplace { get; set; }
+
+    [MaxLength(600)]
+    public string? Bio { get; set; }
+
+    [MaxLength(100)]
+    public string? Languages { get; set; }
+
+    public bool? AcceptingPatients { get; set; }
 }
 
 // PUT /api/users/{id} — полное обновление профиля.
@@ -102,6 +123,21 @@ public class UpdateUserRequest
 
     [MinLength(8), MaxLength(128)]
     public string? Password { get; set; }
+
+    // Профиль врача (виден пациентам при выборе врача); для других ролей не используется. null — не менять
+    [MaxLength(100)]
+    public string? Specialty { get; set; }
+
+    [MaxLength(200)]
+    public string? Workplace { get; set; }
+
+    [MaxLength(600)]
+    public string? Bio { get; set; }
+
+    [MaxLength(100)]
+    public string? Languages { get; set; }
+
+    public bool? AcceptingPatients { get; set; }
 }
 
 public static class UserMappings
@@ -120,7 +156,22 @@ public static class UserMappings
         user.CreatedAt,
         user.PatientCode,
         user.LaboratoryId,
-        user.Laboratory?.Name); // имя есть, если лаборатория загружена (Include)
+        user.Laboratory?.Name, // имя есть, если лаборатория загружена (Include)
+        user.Specialty,
+        user.Workplace,
+        user.Bio,
+        user.Languages,
+        user.AcceptingPatients);
+
+    // Профиль врача из запроса: null — оставить как есть
+    public static void ApplyDoctorProfile(this User user, string? specialty, string? workplace, string? bio, string? languages, bool? acceptingPatients)
+    {
+        if (specialty != null) user.Specialty = specialty.Trim();
+        if (workplace != null) user.Workplace = workplace.Trim();
+        if (bio != null) user.Bio = bio.Trim();
+        if (languages != null) user.Languages = languages.Trim();
+        if (acceptingPatients != null) user.AcceptingPatients = acceptingPatients.Value;
+    }
 
     // "+90 (532) 123-45-67" → "+905321234567"
     public static string NormalizePhone(string phone) => "+" + new string(phone.Where(char.IsDigit).ToArray());

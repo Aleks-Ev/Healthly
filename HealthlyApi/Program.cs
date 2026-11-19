@@ -3,6 +3,7 @@ using HealthlyApi.Middleware;
 using HealthlyApi.OpenApi;
 using HealthlyApi.Services;
 using HealthlyApi.Services.Ai;
+using HealthlyApi.Services.Ai.Chat;
 using HealthlyApi.Services.Ai.Ocr;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -44,6 +45,8 @@ builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddSingleton<TokenService>();
 builder.Services.AddScoped<RefreshTokenService>();
 builder.Services.AddScoped<AuditLog>(); // журнал действий с документами (кто загрузил, кто подтвердил)
+builder.Services.AddScoped<HealthlyApi.Services.Care.CareAccess>(); // врач видит медкарту только «своих» пациентов (активная связь)
+builder.Services.AddScoped<HealthlyApi.Services.Care.Notifier>(); // уведомления (колокольчик)
 builder.Services.AddSingleton<PasswordService>();
 builder.Services.AddSingleton<FileStorageService>();
 
@@ -76,6 +79,26 @@ builder.Services.AddScoped<IAiDocumentProcessor>(services =>
         : new FallbackAiDocumentProcessor(providers, services.GetRequiredService<ILogger<FallbackAiDocumentProcessor>>());
 });
 builder.Services.AddScoped<DocumentAnalysisService>();
+
+// ИИ-чат «Healthly AI Assistant»: те же провайдеры и ключи (Gemini → Groq), без ключей — заглушка MockChatClient
+builder.Services.AddHttpClient<GeminiChatClient>(client => client.Timeout = aiTimeout);
+builder.Services.AddHttpClient<GroqChatClient>(client => client.Timeout = aiTimeout);
+builder.Services.AddScoped<IChatCompletionClient>(services =>
+{
+    var clients = new List<IChatCompletionClient>();
+    if (aiOptions.Gemini.IsConfigured)
+    {
+        clients.Add(services.GetRequiredService<GeminiChatClient>());
+    }
+    if (aiOptions.Groq.IsConfigured)
+    {
+        clients.Add(services.GetRequiredService<GroqChatClient>());
+    }
+    return clients.Count == 0
+        ? new MockChatClient()
+        : new FallbackChatClient(clients, services.GetRequiredService<ILogger<FallbackChatClient>>());
+});
+builder.Services.AddScoped<HealthChatService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

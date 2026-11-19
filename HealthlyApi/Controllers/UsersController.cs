@@ -5,6 +5,7 @@ using HealthlyApi.Data;
 using HealthlyApi.Dtos;
 using HealthlyApi.Models;
 using HealthlyApi.Services;
+using HealthlyApi.Services.Care;
 
 namespace HealthlyApi.Controllers;
 
@@ -18,18 +19,23 @@ public class UsersController : ControllerBase
     private readonly PasswordService _passwords;
     private readonly FileStorageService _storage;
     private readonly RefreshTokenService _refreshTokens;
+    private readonly CareAccess _access;
 
     // Внедряем зависимости через конструктор (Dependency Injection)
-    public UsersController(AppDbContext context, PasswordService passwords, FileStorageService storage, RefreshTokenService refreshTokens)
+    public UsersController(AppDbContext context, PasswordService passwords, FileStorageService storage, RefreshTokenService refreshTokens, CareAccess access)
     {
         _context = context;
         _passwords = passwords;
         _storage = storage;
         _refreshTokens = refreshTokens;
+        _access = access;
     }
 
     /// <summary>List users (Doctor, Admin)</summary>
-    /// <remarks>Sorted by id (oldest accounts first). Optional filter: <c>?role=Patient</c>, <c>Doctor</c> or <c>Admin</c>.</remarks>
+    /// <remarks>
+    /// Sorted by id (oldest accounts first). Optional filter: <c>?role=Patient</c>, <c>Doctor</c>, <c>Admin</c> or <c>LabStaff</c>.
+    /// A doctor gets only their own patients — those who shared their records with them (active care connection).
+    /// </remarks>
     /// <param name="role">Optional role filter.</param>
     /// <response code="200">The list of users.</response>
     [HttpGet]
@@ -38,6 +44,14 @@ public class UsersController : ControllerBase
     public async Task<ActionResult<IEnumerable<UserResponse>>> GetUsers([FromQuery] string? role)
     {
         IQueryable<User> query = _context.Users.AsNoTracking().Include(u => u.Laboratory);
+
+        // Врач видит только своих пациентов (активная связь), Admin — всех
+        if (!User.IsInRole(Roles.Admin))
+        {
+            var doctorId = User.GetUserId();
+            query = query.Where(u => u.Role == Roles.Patient && _context.CareConnections.Any(c =>
+                c.DoctorId == doctorId && c.PatientId == u.Id && c.Status == CareConnectionStatuses.Active));
+        }
 
         if (!string.IsNullOrWhiteSpace(role))
         {
@@ -49,9 +63,9 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>Get a user by id</summary>
-    /// <remarks>Allowed for the user themselves, Doctor and Admin.</remarks>
+    /// <remarks>Allowed for the user themselves, Admin and the patient's doctors (active care connection).</remarks>
     /// <response code="200">The user.</response>
-    /// <response code="403">A patient requested another user's profile.</response>
+    /// <response code="403">No access to this user (another patient, or a doctor without an active care connection).</response>
     /// <response code="404">User not found.</response>
     [HttpGet("{id:int}")]
     [ProducesResponseType<UserResponse>(StatusCodes.Status200OK)]
@@ -59,7 +73,7 @@ public class UsersController : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<UserResponse>> GetUser(int id)
     {
-        if (!User.CanAccessUser(id))
+        if (!await _access.CanAccessUserAsync(User, id))
         {
             return Forbid();
         }
@@ -132,6 +146,7 @@ public class UsersController : ControllerBase
             PatientCode = request.Role == Roles.Patient ? await PatientCodes.GenerateUniqueAsync(_context) : null,
             LaboratoryId = request.Role == Roles.LabStaff ? request.LaboratoryId : null,
         };
+        user.ApplyDoctorProfile(request.Specialty, request.Workplace, request.Bio, request.Languages, request.AcceptingPatients);
         user.PasswordHash = _passwords.Hash(user, request.Password);
 
         _context.Users.Add(user);
@@ -148,6 +163,8 @@ public class UsersController : ControllerBase
     /// Changing the password ends all of the user's sessions (their refresh tokens stop working).
     /// <c>phoneNumber</c>, <c>dateOfBirth</c> and <c>city</c>: <c>null</c> (or omitted) keeps the current value;
     /// an empty string clears the phone or city. The date of birth and gender pick the reference norms of lab tests.
+    /// Doctor profile (<c>specialty</c>, <c>workplace</c>, <c>bio</c>, <c>languages</c>, <c>acceptingPatients</c>):
+    /// shown to patients choosing a doctor in the same <c>city</c>; <c>null</c> keeps the current value.
     /// </remarks>
     /// <response code="200">The updated user.</response>
     /// <response code="400">Validation failed; see <c>errors</c>.</response>
@@ -207,6 +224,9 @@ public class UsersController : ControllerBase
         {
             user.City = request.City;
         }
+
+        // Профиль врача может заполнить сам врач или Admin
+        user.ApplyDoctorProfile(request.Specialty, request.Workplace, request.Bio, request.Languages, request.AcceptingPatients);
 
         if (request.Role != null)
         {

@@ -1,21 +1,22 @@
-// Палитра лендинга. Её можно менять «вживую» через ThemeCustomizer, поэтому секции получают theme пропсом.
+// Палитра лендинга (сверена с макетами Figma). Её можно менять «вживую» через ThemeCustomizer,
+// поэтому секции получают theme пропсом.
 
-// Default Color Palette matching the exact aesthetic from the screenshots
 export const DEFAULT_THEME = {
-  bgPrimary: '#f6f7f2',      // Soft warm sage cream background
-  bgCard: '#ffffff',         // Clean white for cards
-  bgSecondary: '#ebefe6',    // Slightly deeper sage tint
-  bgDark: '#080c0a',         // Sophisticated dark section
-  textPrimary: '#242b26',    // Dark forest text
-  textSecondary: '#6b756e',  // Muted sage text
-  textLight: '#ffffff',      // Pure white text
-  textMutedDark: '#8e9890',  // Muted text for dark backgrounds
-  accentGreen: '#72826c',    // Primary muted olive green
-  accentGreenHover: '#5e6d59',// Darker olive green hover
-  accentMint: '#dce8d8',     // Light mint badge
-  accentMintText: '#3a5235', // Dark green text on mint badge
-  borderLight: '#e1e7dc',    // Delicate border color
-  borderDark: '#232c25',     // Dark section subtle borders
+  bgPrimary: '#f7f7f2',      // тёплый кремовый фон страницы
+  bgCard: '#ffffff',         // белые карточки и кнопки «второго плана»
+  bgSecondary: '#eef0e9',    // приглушённый шалфей (секция философии)
+  bgMint: '#e4ece5',         // светло-мятный фон секции с карточками и финального блока
+  bgPanel: '#f1f4ef',        // карточка-виджет на мятном фоне
+  bgDark: '#465a4a',         // глубокий зелёный: главная кнопка на телефоне, акцентный столбец
+  textPrimary: '#2a302b',    // почти чёрный зелёный
+  textSecondary: '#6c736c',  // приглушённый текст
+  textMuted: '#9aa19a',      // подписи осей и мелкие метки
+  accentGreen: '#737f69',    // оливковая кнопка
+  accentGreenHover: '#5f6b57',
+  accentSoft: '#b9c4b5',     // столбцы и полосы второго плана
+  accentMint: '#dce7d8',     // фон бейджей «Within range»
+  accentMintText: '#3d5340', // текст на мятном бейдже
+  borderLight: '#e3e6dd',    // тонкие границы
 };
 
 export type LandingTheme = typeof DEFAULT_THEME;

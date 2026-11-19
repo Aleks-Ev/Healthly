@@ -12,7 +12,8 @@ const COLOR_GROUPS: { title: string; className: string; colors: { key: ThemeColo
       { key: 'bgPrimary', label: 'Page Background' },
       { key: 'bgCard', label: 'Card Background' },
       { key: 'bgSecondary', label: 'Secondary Tint' },
-      { key: 'bgDark', label: 'Dark Section BG' },
+      { key: 'bgMint', label: 'Mint Section' },
+      { key: 'bgPanel', label: 'Widget Card' },
     ],
   },
   {
@@ -20,6 +21,8 @@ const COLOR_GROUPS: { title: string; className: string; colors: { key: ThemeColo
     className: 'mt-4',
     colors: [
       { key: 'accentGreen', label: 'Primary Accent Green' },
+      { key: 'bgDark', label: 'Deep Green (mobile CTA)' },
+      { key: 'accentSoft', label: 'Soft Bars' },
       { key: 'accentMint', label: 'Soft Mint Badge' },
     ],
   },
@@ -45,18 +48,20 @@ interface ThemeCustomizerProps {
 
 export default function ThemeCustomizer({ theme, isOpen, onToggle, onClose, onColorChange, onReset }: ThemeCustomizerProps) {
   return (
-    <div className="fixed bottom-6 right-6 z-50">
+    <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50">
       <button
         onClick={onToggle}
-        className="flex items-center gap-2 px-4 py-3 rounded-full shadow-2xl text-white font-medium text-sm transition-transform hover:scale-105 active:scale-95"
+        aria-label="Theme & Colors"
+        className="flex items-center gap-2 p-3 sm:px-4 rounded-full shadow-lg text-white font-medium text-sm transition-transform hover:scale-105 active:scale-95"
         style={{ backgroundColor: theme.accentGreen }}
       >
         <Palette className="w-4 h-4" />
-        <span>Theme & Colors</span>
+        {/* На телефоне — только иконка, чтобы не закрывать содержимое */}
+        <span className="hidden sm:inline">Theme & Colors</span>
       </button>
 
       {isOpen && (
-        <div className="absolute bottom-16 right-0 w-80 sm:w-96 p-6 bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-slate-200 text-slate-800 text-sm z-50 max-h-[80vh] overflow-y-auto">
+        <div className="absolute bottom-16 right-0 w-[calc(100vw-2rem)] max-w-96 p-6 bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-slate-200 text-slate-800 text-sm z-50 max-h-[80vh] overflow-y-auto">
           <div className="flex items-center justify-between pb-4 border-b border-slate-100">
             <div className="flex items-center gap-2 font-semibold text-slate-900">
               <Sliders className="w-4 h-4 text-emerald-600" />

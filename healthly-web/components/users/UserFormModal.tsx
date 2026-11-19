@@ -5,12 +5,15 @@
 // - user задан   → редактирование; роль и новый пароль видит только Admin (isAdmin)
 // Телефон, дата рождения и город — те же правила, что при регистрации (проверяет сервер). Для пациента дата рождения и пол
 // обязательны при создании: по ним выбираются нормы анализов. При редактировании пустой телефон/город — очистить.
+// У врача — профиль для пациентов (специальность, место работы, о себе, языки, «принимает пациентов»): его видят
+// пациенты, выбирающие врача в своём городе (/care). Заполнить может сам врач или Admin.
 
 import { useCallback, useState, type FormEvent } from 'react';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import Alert from '@/components/ui/Alert';
 import { SelectField, TextField, fieldError } from '@/components/ui/Field';
+import { TextAreaField } from '@/components/care/shared';
 import { ApiError, getErrorMessage, laboratoriesApi, usersApi } from '@/lib/api';
 import { useApiData } from '@/lib/useApiData';
 import { toNumberOrNull } from '@/lib/format';
@@ -55,6 +58,11 @@ function UserForm({ user, isAdmin, onClose, onSaved }: UserFormModalProps) {
     dateOfBirth: user?.dateOfBirth ?? '',
     city: user?.city ?? '',
     laboratoryId: user?.laboratoryId?.toString() ?? '',
+    specialty: user?.specialty ?? '',
+    workplace: user?.workplace ?? '',
+    bio: user?.bio ?? '',
+    languages: user?.languages ?? '',
+    acceptingPatients: user?.acceptingPatients ?? true,
   });
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
@@ -66,6 +74,8 @@ function UserForm({ user, isAdmin, onClose, onSaved }: UserFormModalProps) {
   const requireBirthData = !isEdit && isPatient;
   // Сотруднику лаборатории админ выбирает лабораторию (список нужен только админу)
   const isLabStaff = form.role === 'LabStaff';
+  // Профиль врача: админ видит поля, если выбрал роль Doctor; врач — у себя
+  const isDoctor = (isAdmin ? form.role : user?.role) === 'Doctor';
   const loadLaboratories = useCallback(() => (isAdmin ? laboratoriesApi.list() : Promise.resolve([])), [isAdmin]);
   const { data: laboratories } = useApiData(loadLaboratories);
 
@@ -88,6 +98,16 @@ function UserForm({ user, isAdmin, onClose, onSaved }: UserFormModalProps) {
       // Пусто: при создании — не указано; при редактировании — очистить, если раньше было, иначе не менять
       phoneNumber: form.phoneNumber.trim() || (user?.phoneNumber ? '' : null),
       city: form.city || (user?.city ? '' : null),
+      // Профиль врача отправляем только для врача (у других ролей поля не трогаем)
+      ...(isDoctor
+        ? {
+            specialty: form.specialty,
+            workplace: form.workplace,
+            bio: form.bio,
+            languages: form.languages,
+            acceptingPatients: form.acceptingPatients,
+          }
+        : {}),
     };
 
     try {
@@ -165,7 +185,7 @@ function UserForm({ user, isAdmin, onClose, onSaved }: UserFormModalProps) {
             onChange={update('laboratoryId')}
             options={[
               { value: '', label: laboratories && laboratories.length === 0 ? 'No laboratories — add one first' : 'Select a laboratory' },
-              ...(laboratories ?? []).map((laboratory) => ({ value: laboratory.id.toString(), label: ` (${laboratory.city})` })),
+              ...(laboratories ?? []).map((laboratory) => ({ value: laboratory.id.toString(), label: `${laboratory.name} (${laboratory.city})` })),
             ]}
             error={fieldError(fieldErrors, 'laboratoryId')}
           />
@@ -217,6 +237,37 @@ function UserForm({ user, isAdmin, onClose, onSaved }: UserFormModalProps) {
           <p className="text-xs text-[#6b756e]">
             Date of birth and gender are used to choose the right reference ranges for lab results.
           </p>
+        )}
+
+        {isDoctor && (
+          <fieldset className="space-y-4 rounded-2xl border border-[#e1e7dc] p-4">
+            <legend className="px-1 text-sm font-semibold text-[#2a302b]">Doctor profile</legend>
+            <p className="-mt-1 text-xs text-[#6b756e]">
+              Patients in the same testing city see this when choosing a doctor. Doctors with fewer patients are suggested first.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <TextField label="Specialty" id="user-specialty" placeholder="Endocrinologist" value={form.specialty} onChange={update('specialty')} error={fieldError(fieldErrors, 'specialty')} />
+              <TextField label="Clinic or hospital" id="user-workplace" value={form.workplace} onChange={update('workplace')} error={fieldError(fieldErrors, 'workplace')} />
+            </div>
+            <TextAreaField
+              label="About (shown to patients)"
+              id="user-bio"
+              maxLength={600}
+              placeholder="A couple of sentences about your practice and how you work with patients."
+              value={form.bio}
+              onChange={update('bio')}
+            />
+            <TextField label="Languages" id="user-languages" placeholder="Turkish, English" value={form.languages} onChange={update('languages')} error={fieldError(fieldErrors, 'languages')} />
+            <label className="flex items-center gap-2.5 text-sm text-[#2f3530]">
+              <input
+                type="checkbox"
+                checked={form.acceptingPatients}
+                onChange={(event) => setForm((prev) => ({ ...prev, acceptingPatients: event.target.checked }))}
+                className="h-4 w-4 accent-[#737f69]"
+              />
+              Accepting new patients
+            </label>
+          </fieldset>
         )}
 
         {error && <Alert>{error}</Alert>}

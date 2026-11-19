@@ -4,7 +4,18 @@ using HealthlyApi.Models;
 namespace HealthlyApi.Dtos;
 
 // Лаборатория-партнёр
-public record LaboratoryResponse(int Id, string Name, string City, string Address, int StaffCount);
+public record LaboratoryResponse(
+    int Id,
+    string Name,
+    string City,
+    string Address,
+    int StaffCount,
+    // Описание для пациентов, выбирающих лабораторию
+    string Description,
+    string OpeningHours,
+    string Phone,
+    bool AcceptingPatients,
+    int PatientCount); // пациентов с активной связью
 
 // POST /api/laboratories (Admin)
 public class LaboratoryRequest
@@ -20,6 +31,17 @@ public class LaboratoryRequest
 
     [MaxLength(300)]
     public string? Address { get; set; }
+
+    [MaxLength(600)]
+    public string? Description { get; set; }
+
+    [MaxLength(100)]
+    public string? OpeningHours { get; set; }
+
+    [RegularExpression(ProfileValidation.TurkishPhonePattern, ErrorMessage = ProfileValidation.TurkishPhoneMessage)]
+    public string? Phone { get; set; }
+
+    public bool AcceptingPatients { get; set; } = true;
 }
 
 // GET /api/lab/patients/{code} — минимум, нужный сотруднику, чтобы убедиться, что перед ним тот самый пациент

@@ -3,13 +3,16 @@
 // Рабочее место сотрудника лаборатории (роль LabStaff):
 //   1. пациент называет Healthly ID или показывает QR-код — сканер QR «печатает» код в поле как клавиатура (+ Enter);
 //   2. сотрудник сверяет имя и дату рождения, выбирает файл бланка на компьютере лаборатории и загружает его;
-//   3. очередь лаборатории: документы «не проанализирован / черновик» → открыть, запустить ИИ-анализ, сверить, подтвердить.
+//   3. очередь лаборатории: документы «не проанализирован / черновик» → открыть, запустить ИИ-анализ, сверить, подтвердить;
+//   4. запросы пациентов, выбравших эту лабораторию (ProviderRequests): принять/отклонить; у подключённых —
+//      кнопка «Upload report» сразу находит пациента по Healthly ID. Медкарту пациента лаборатория не видит.
 // Сотрудник видит только документы своей лаборатории (это проверяет API).
 
 import { useCallback, useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { FileUp, Search, UserCheck, X } from 'lucide-react';
 import Card, { EmptyState, LoadingState } from '@/components/ui/Card';
+import ProviderRequests from '@/components/care/ProviderRequests';
 import Button from '@/components/ui/Button';
 import Alert from '@/components/ui/Alert';
 import Badge, { CriticalBadge } from '@/components/ui/Badge';
@@ -31,6 +34,21 @@ export default function LabWorkspace() {
   const [pendingOnly, setPendingOnly] = useState(true);
   const loadQueue = useCallback(() => labApi.documents(pendingOnly), [pendingOnly]);
   const { data: queue, error: queueError, reload } = useApiData(loadQueue);
+  // Пациент, выбранный в списке подключённых: UploadCard пересоздаётся (key) уже с найденным пациентом
+  const [preset, setPreset] = useState<{ patient: LabPatient; key: number } | null>(null);
+  const [presetError, setPresetError] = useState<string | null>(null);
+  const uploadRef = useRef<HTMLDivElement>(null);
+
+  const startUpload = async (code: string) => {
+    setPresetError(null);
+    try {
+      const patient = await labApi.findPatient(code);
+      setPreset({ patient, key: Date.now() });
+      uploadRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (err) {
+      setPresetError(getErrorMessage(err));
+    }
+  };
 
   if (!user) {
     return null;
@@ -48,7 +66,10 @@ export default function LabWorkspace() {
       {!user.laboratoryId ? (
         <Alert>Your account is not linked to a laboratory yet. Ask an administrator to assign one.</Alert>
       ) : (
-        <UploadCard onUploaded={reload} />
+        <div ref={uploadRef} className="scroll-mt-24 space-y-3">
+          {presetError && <Alert>{presetError}</Alert>}
+          <UploadCard key={preset?.key ?? 0} initialPatient={preset?.patient ?? null} onUploaded={reload} />
+        </div>
       )}
 
       <Card
@@ -114,14 +135,16 @@ export default function LabWorkspace() {
           </div>
         )}
       </Card>
+
+      {user.laboratoryId && <ProviderRequests mode="lab" showHeading={false} onUpload={startUpload} />}
     </div>
   );
 }
 
 // Поиск пациента по Healthly ID и загрузка файла с компьютера лаборатории
-function UploadCard({ onUploaded }: { onUploaded: () => void }) {
-  const [code, setCode] = useState('');
-  const [patient, setPatient] = useState<LabPatient | null>(null);
+function UploadCard({ initialPatient, onUploaded }: { initialPatient: LabPatient | null; onUploaded: () => void }) {
+  const [code, setCode] = useState(initialPatient?.patientCode ?? '');
+  const [patient, setPatient] = useState<LabPatient | null>(initialPatient);
   const [file, setFile] = useState<File | null>(null);
   const [uploaded, setUploaded] = useState<MedicalDocumentDetails | null>(null);
   const [error, setError] = useState<string | null>(null);

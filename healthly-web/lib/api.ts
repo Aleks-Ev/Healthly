@@ -13,6 +13,13 @@ import type {
   LabPatient,
   Laboratory,
   LaboratoryRequest,
+  ReferenceValue,
+  AppNotification,
+  ChatHistory,
+  ChatReply,
+  CareConnection,
+  CareSuggestions,
+  CreateCareConnectionRequest,
   IndicatorTrend,
   LoginRequest,
   MedicalDocument,
@@ -296,7 +303,39 @@ export const resultsApi = {
 export const laboratoriesApi = {
   list: () => request<Laboratory[]>('/laboratories'),
   create: (data: LaboratoryRequest) => request<Laboratory>('/laboratories', { method: 'POST', json: data }),
+  update: (id: number, data: LaboratoryRequest) => request<Laboratory>(`/laboratories/${id}`, { method: 'PUT', json: data }),
   remove: (id: number) => request<void>(`/laboratories/${id}`, { method: 'DELETE' }),
+};
+
+// Команда здоровья: пациент выбирает врача и лабораторию, они принимают запрос, пациент подтверждает доступ
+export const careApi = {
+  suggestions: (city?: string) => request<CareSuggestions>(city ? `/care/suggestions?city=${encodeURIComponent(city)}` : '/care/suggestions'),
+  connections: () => request<CareConnection[]>('/care/connections'),
+  request: (data: CreateCareConnectionRequest) => request<CareConnection>('/care/connections', { method: 'POST', json: data }),
+  accept: (id: number) => request<CareConnection>(`/care/connections/${id}/accept`, { method: 'POST' }),
+  decline: (id: number, note?: string) => request<CareConnection>(`/care/connections/${id}/decline`, { method: 'POST', json: { note: note || null } }),
+  confirm: (id: number) => request<CareConnection>(`/care/connections/${id}/confirm`, { method: 'POST' }),
+  end: (id: number, note?: string) => request<CareConnection>(`/care/connections/${id}/end`, { method: 'POST', json: { note: note || null } }),
+};
+
+// ИИ-чат «Healthly AI»: история, отправка (лимит 10/мин и 30/час → 429), очистка
+export const chatApi = {
+  history: () => request<ChatHistory>('/chat/messages'),
+  send: (content: string) => request<ChatReply>('/chat/messages', { method: 'POST', json: { content } }),
+  clear: () => request<void>('/chat/messages', { method: 'DELETE' }),
+};
+
+// Уведомления (колокольчик в шапке кабинета)
+export const notificationsApi = {
+  list: () => request<AppNotification[]>('/notifications'),
+  unreadCount: () => request<{ count: number }>('/notifications/unread-count'),
+  markRead: (id: number) => request<void>(`/notifications/${id}/read`, { method: 'POST' }),
+  markAllRead: () => request<void>('/notifications/read-all', { method: 'POST' }),
+};
+
+// Справочник норм (Doctor, Admin) — только чтение; правится в HealthlyApi/Data/reference-values.csv
+export const referenceValuesApi = {
+  list: () => request<ReferenceValue[]>('/reference-values'),
 };
 
 // Рабочее место сотрудника лаборатории (LabStaff). code — Healthly ID пациента ("HL-7K3P9Q", регистр и пробелы не важны)

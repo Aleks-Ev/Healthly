@@ -54,9 +54,11 @@ function UsersManager() {
     <>
       <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-semibold">Users</h1>
+          <h1 className="text-2xl sm:text-3xl font-semibold">{isAdmin ? 'Users' : 'My patients'}</h1>
           <p className="mt-1 text-sm text-[#6b756e]">
-            {isAdmin ? 'Create, edit and remove accounts. Open a patient to see their records.' : 'Open a patient to see their records.'}
+            {isAdmin
+              ? 'Create, edit and remove accounts. Open a patient to see their records.'
+              : 'Patients who shared their records with you. New requests are on the Patient requests page.'}
           </p>
         </div>
         {isAdmin && (
@@ -79,7 +81,8 @@ function UsersManager() {
               className="w-full rounded-full border border-[#e1e7dc] bg-white pl-9 pr-4 py-2 text-sm outline-none focus:border-[#72826c]"
             />
           </div>
-          <div className="flex flex-wrap gap-1" role="tablist" aria-label="Filter by role">
+          {/* Фильтр по ролям — только админу: врач видит одних пациентов */}
+          {isAdmin && <div className="flex flex-wrap gap-1" role="tablist" aria-label="Filter by role">
             {(['All', ...ROLES] as const).map((role) => (
               <button
                 key={role}
@@ -91,7 +94,7 @@ function UsersManager() {
                 {role}
               </button>
             ))}
-          </div>
+          </div>}
         </div>
 
         {loadError && <Alert>{loadError}</Alert>}

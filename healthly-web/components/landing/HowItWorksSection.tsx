@@ -1,66 +1,43 @@
-// Секция «How it works»: три шага
+'use client';
 
-import { FileText, Leaf, Sparkles, type LucideIcon } from 'lucide-react';
+// Секция «How it works»: три шага. Номер тонкой антиквой, от него — линия к иконке (как в Figma)
+
+import { FolderClosed, Sparkles, Sprout, type LucideIcon } from 'lucide-react';
+import { useI18n } from '@/lib/i18n';
 import type { SectionProps } from './theme';
 
-const STEPS: { number: string; icon: LucideIcon; title: string; text: string }[] = [
-  {
-    number: '01',
-    icon: FileText,
-    title: 'Begin with what you know.',
-    text: 'Create your private health space. Upload existing results, or start fresh with a test.',
-  },
-  {
-    number: '02',
-    icon: Sparkles,
-    title: 'Find meaning in the details.',
-    text: 'Explore clear explanations of your biomarkers, with AI that makes the complex feel simple.',
-  },
-  {
-    number: '03',
-    icon: Leaf,
-    title: 'Grow your understanding.',
-    text: 'Track changes over time and bring better questions to conversations with your clinician.',
-  },
-];
+const ICONS: LucideIcon[] = [FolderClosed, Sparkles, Sprout];
 
 export default function HowItWorksSection({ theme }: SectionProps) {
+  const { t } = useI18n();
+  const h = t.howItWorks;
+
   return (
-    <section id="how-it-works" className="py-24 px-6 sm:px-12 max-w-7xl mx-auto space-y-16">
-
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-        <div className="space-y-3">
-          <div className="text-xs font-semibold tracking-widest uppercase" style={{ color: theme.textSecondary }}>
-            HOW IT WORKS
-          </div>
-          <h2 className="text-4xl sm:text-5xl font-serif-aesthetic" style={{ color: theme.textPrimary }}>
-            A small beginning. A clearer <br />
-            tomorrow.
-          </h2>
+    <section id="how-it-works" className="mx-auto max-w-7xl px-4 py-16 sm:px-8 sm:py-24 lg:px-12">
+      <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
+        <div className="max-w-2xl space-y-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: theme.textSecondary }}>{h.eyebrow}</div>
+          <h2 className="font-serif-aesthetic text-[40px] leading-[1.05] sm:text-6xl" style={{ color: theme.textPrimary }}>{h.title}</h2>
         </div>
-        <div className="italic font-serif-aesthetic text-base" style={{ color: theme.textSecondary }}>
-          At your pace. Always.
-        </div>
+        <div className="font-serif-aesthetic text-xl italic" style={{ color: theme.textSecondary }}>{h.aside}</div>
       </div>
 
-      {/* 3 Step Process Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 pt-8">
-        {STEPS.map(({ number, icon: Icon, title, text }) => (
-          <div key={number} className="space-y-6 relative">
-            <div className="flex items-center justify-between pb-4 border-b" style={{ borderColor: theme.borderLight }}>
-              <span className="font-serif-aesthetic text-2xl text-slate-400">{number}</span>
-              <Icon className="w-5 h-5 text-slate-400" />
-            </div>
-            <h3 className="text-xl font-serif-aesthetic" style={{ color: theme.textPrimary }}>
-              {title}
-            </h3>
-            <p className="text-xs sm:text-sm leading-relaxed" style={{ color: theme.textSecondary }}>
-              {text}
-            </p>
-          </div>
-        ))}
-      </div>
-
+      <ol className="mt-12 grid grid-cols-1 gap-10 md:grid-cols-3 md:gap-8">
+        {h.steps.map((step, index) => {
+          const Icon = ICONS[index];
+          return (
+            <li key={step.title}>
+              <div className="flex items-center gap-4">
+                <span className="font-serif-aesthetic text-3xl" style={{ color: theme.textSecondary }}>{String(index + 1).padStart(2, '0')}</span>
+                <span className="h-px flex-1" style={{ backgroundColor: theme.borderLight }} />
+                <Icon className="h-4 w-4" style={{ color: theme.textSecondary }} strokeWidth={1.5} />
+              </div>
+              <h3 className="mt-6 font-serif-aesthetic text-2xl" style={{ color: theme.textPrimary }}>{step.title}</h3>
+              <p className="mt-3 text-sm leading-relaxed" style={{ color: theme.textSecondary }}>{step.text}</p>
+            </li>
+          );
+        })}
+      </ol>
     </section>
   );
 }
