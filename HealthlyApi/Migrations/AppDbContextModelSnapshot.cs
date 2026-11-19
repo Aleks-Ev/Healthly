@@ -150,6 +150,37 @@ namespace HealthlyApi.Migrations
                         });
                 });
 
+            modelBuilder.Entity("HealthlyApi.Models.ChatMessage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("character varying(8000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "CreatedAt");
+
+                    b.ToTable("ChatMessages");
+                });
+
             modelBuilder.Entity("HealthlyApi.Models.DocumentAnalysis", b =>
                 {
                     b.Property<int>("Id")
@@ -654,6 +685,17 @@ namespace HealthlyApi.Migrations
                     b.Navigation("Laboratory");
 
                     b.Navigation("Patient");
+                });
+
+            modelBuilder.Entity("HealthlyApi.Models.ChatMessage", b =>
+                {
+                    b.HasOne("HealthlyApi.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("HealthlyApi.Models.DocumentAnalysis", b =>

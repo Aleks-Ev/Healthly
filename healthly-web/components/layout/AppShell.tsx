@@ -5,7 +5,7 @@
 import { Suspense, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { BookOpenCheck, Building2, FlaskConical, HeartHandshake, LayoutDashboard, LogOut, Menu, Users, X } from 'lucide-react';
+import { BookOpenCheck, Building2, FlaskConical, HeartHandshake, LayoutDashboard, LogOut, Menu, Sparkles, Users, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { RoleBadge } from '@/components/ui/Badge';
 import LanguageSwitcher from '@/components/ui/LanguageSwitcher';
@@ -33,6 +33,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/admin/users', label: 'myPatients', icon: Users, roles: ['Doctor'] },
   { href: '/admin/users', label: 'users', icon: Users, roles: ['Admin'] },
   { href: '/care', label: 'careConnections', icon: HeartHandshake, roles: ['Admin'] },
+  // ИИ-ассистент — всем ролям (здоровье и вопросы о платформе)
+  { href: '/chat', label: 'aiAssistant', icon: Sparkles },
   { href: '/admin/reference-values', label: 'referenceValues', icon: BookOpenCheck, roles: ['Doctor', 'Admin'] },
   { href: '/admin/laboratories', label: 'laboratories', icon: Building2, roles: ['Admin'] },
 ];
@@ -69,14 +71,14 @@ export default function AppShell({ roles, children }: AppShellProps) {
         <div className="mx-auto max-w-6xl h-16 px-4 sm:px-6 flex items-center justify-between gap-4">
           <div className="flex items-center gap-6">
             <Logo />
-            {user && <nav className="hidden lg:flex items-center gap-1">{navLinks}</nav>}
+            {user && <nav className="hidden xl:flex items-center gap-1">{navLinks}</nav>}
           </div>
 
           {user && (
             <div className="flex items-center gap-2">
               <NotificationBell />
               <LanguageSwitcher className="hidden sm:block" />
-              <div className="hidden xl:flex items-center gap-2 text-sm">
+              <div className="hidden 2xl:flex items-center gap-2 text-sm">
                 <span className="whitespace-nowrap font-medium">{user.fullName}</span>
                 <RoleBadge role={user.role} />
               </div>
@@ -84,16 +86,16 @@ export default function AppShell({ roles, children }: AppShellProps) {
                 onClick={handleLogout}
                 aria-label={t.common.logOut}
                 title={t.common.logOut}
-                className="hidden lg:inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-2 text-sm text-[#6b756e] hover:bg-[#ebefe6] hover:text-[#242b26] transition"
+                className="hidden xl:inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-2 text-sm text-[#6b756e] hover:bg-[#ebefe6] hover:text-[#242b26] transition"
               >
                 <LogOut className="w-4 h-4" />
-                <span className="hidden xl:inline">{t.common.logOut}</span>
+                <span className="hidden 2xl:inline">{t.common.logOut}</span>
               </button>
               <button
                 aria-label={isMenuOpen ? t.common.closeMenu : t.common.openMenu}
                 aria-expanded={isMenuOpen}
                 onClick={() => setIsMenuOpen((open) => !open)}
-                className="lg:hidden p-2 rounded-full text-[#6b756e] hover:bg-[#ebefe6] transition"
+                className="xl:hidden p-2 rounded-full text-[#6b756e] hover:bg-[#ebefe6] transition"
               >
                 {isMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
               </button>
@@ -102,7 +104,7 @@ export default function AppShell({ roles, children }: AppShellProps) {
         </div>
 
         {user && isMenuOpen && (
-          <div className="lg:hidden border-t border-[#e3e6dd] px-4 py-3 space-y-1">
+          <div className="xl:hidden border-t border-[#e3e6dd] px-4 py-3 space-y-1">
             <div className="flex items-center justify-between gap-3 px-1 pb-2 text-sm">
               <span className="truncate font-medium">{user.fullName}</span>
               <RoleBadge role={user.role} />

@@ -6,7 +6,8 @@ namespace HealthlyApi.Services;
 // Ограничение частоты запросов — когда сайт открыт в интернет (Cloudflare Tunnel, см. TEAM_GUIDE.md):
 // - вход и регистрация — по IP: защита от подбора паролей и массовой регистрации;
 // - ИИ-анализ — по пользователю: чужой человек не израсходует бесплатную квоту Gemini/Groq;
-// - поиск пациента по Healthly ID — по сотруднику лаборатории: защита от перебора кодов.
+// - поиск пациента по Healthly ID — по сотруднику лаборатории: защита от перебора кодов;
+// - ИИ-чат — по пользователю, два окна сразу: 10 сообщений в минуту (спам) и 30 в час (бесплатная квота ИИ).
 // Лимиты с запасом: группа студентов из одной сети (один внешний IP) спокойно регистрируется одновременно.
 // Превышение → 429 с телом ProblemDetails (UseStatusCodePages) и заголовком Retry-After.
 public static class RateLimiting
@@ -14,6 +15,10 @@ public static class RateLimiting
     public const string Auth = "auth";
     public const string AiAnalysis = "ai-analysis";
     public const string PatientLookup = "patient-lookup";
+    public const string AiChat = "ai-chat";
+
+    public const int ChatPerMinute = 10;
+    public const int ChatPerHour = 30;
 
     public static IServiceCollection AddHealthlyRateLimiting(this IServiceCollection services)
     {
@@ -44,6 +49,7 @@ public static class RateLimiting
             options.AddPolicy(Auth, context => FixedWindow(ByIp(context), permits: 20, TimeSpan.FromMinutes(1)));
             options.AddPolicy(AiAnalysis, context => FixedWindow(ByUser(context), permits: 20, TimeSpan.FromHours(1)));
             options.AddPolicy(PatientLookup, context => FixedWindow(ByUser(context), permits: 30, TimeSpan.FromMinutes(1)));
+            options.AddPolicy(AiChat, context => RateLimitPartition.Get(ByUser(context), _ => CreateChatLimiter()));
         });
         return services;
     }
@@ -55,6 +61,24 @@ public static class RateLimiting
     // Авторизованный пользователь — по id (несколько человек за одним IP не мешают друг другу), иначе по IP
     private static string ByUser(HttpContext context) =>
         context.User.GetUserId() is { } userId ? "user:" + userId : ByIp(context);
+
+    // Цепочка двух окон: запрос проходит, только если есть место и в минутном, и в часовом окне.
+    // Параметры — для тестов (RateLimitingTests: короткие окна вместо часа)
+    public static RateLimiter CreateChatLimiter(
+        int perMinute = ChatPerMinute, int perHour = ChatPerHour, TimeSpan? minuteWindow = null, TimeSpan? hourWindow = null) =>
+        RateLimiter.CreateChained(
+            new FixedWindowRateLimiter(new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = perMinute,
+                Window = minuteWindow ?? TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }),
+            new FixedWindowRateLimiter(new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = perHour,
+                Window = hourWindow ?? TimeSpan.FromHours(1),
+                QueueLimit = 0,
+            }));
 
     private static RateLimitPartition<string> FixedWindow(string key, int permits, TimeSpan window) =>
         RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions

@@ -15,6 +15,8 @@ import type {
   LaboratoryRequest,
   ReferenceValue,
   AppNotification,
+  ChatHistory,
+  ChatReply,
   CareConnection,
   CareSuggestions,
   CreateCareConnectionRequest,
@@ -314,6 +316,13 @@ export const careApi = {
   decline: (id: number, note?: string) => request<CareConnection>(`/care/connections/${id}/decline`, { method: 'POST', json: { note: note || null } }),
   confirm: (id: number) => request<CareConnection>(`/care/connections/${id}/confirm`, { method: 'POST' }),
   end: (id: number, note?: string) => request<CareConnection>(`/care/connections/${id}/end`, { method: 'POST', json: { note: note || null } }),
+};
+
+// ИИ-чат «Healthly AI»: история, отправка (лимит 10/мин и 30/час → 429), очистка
+export const chatApi = {
+  history: () => request<ChatHistory>('/chat/messages'),
+  send: (content: string) => request<ChatReply>('/chat/messages', { method: 'POST', json: { content } }),
+  clear: () => request<void>('/chat/messages', { method: 'DELETE' }),
 };
 
 // Уведомления (колокольчик в шапке кабинета)

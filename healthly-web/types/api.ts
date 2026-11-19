@@ -422,3 +422,27 @@ export interface AppNotification {
   createdAt: string;
   readAt: string | null;
 }
+
+// --- ИИ-чат «Healthly AI» (/api/chat/messages) ---
+
+export type ChatRole = 'user' | 'assistant';
+
+export interface ChatMessage {
+  id: number;
+  role: ChatRole;
+  content: string;
+  createdAt: string;
+}
+
+export interface ChatHistory {
+  messages: ChatMessage[];
+  disclaimer: string; // английский текст для показа под ответами (сайт показывает перевод из словаря)
+}
+
+export interface ChatReply {
+  userMessage: ChatMessage;
+  assistantMessage: ChatMessage;
+  model: string;    // "gemini:…", "groq:…", "mock-chat-v1"
+  isMock: boolean;  // нет ключей ИИ — ответ заглушки
+  disclaimer: string;
+}

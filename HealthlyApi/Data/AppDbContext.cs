@@ -20,6 +20,7 @@ public class AppDbContext : DbContext
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
     public DbSet<CareConnection> CareConnections => Set<CareConnection>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -132,6 +133,15 @@ public class AppDbContext : DbContext
             connection.ToTable(t => t.HasCheckConstraint(
                 "CK_CareConnections_Provider",
                 "(\"DoctorId\" IS NOT NULL AND \"LaboratoryId\" IS NULL) OR (\"DoctorId\" IS NULL AND \"LaboratoryId\" IS NOT NULL)"));
+        });
+
+        // ИИ-чат: история пользователя читается по (UserId, CreatedAt); удалили пользователя — удалилась переписка
+        modelBuilder.Entity<ChatMessage>(message =>
+        {
+            message.HasOne(m => m.User).WithMany().HasForeignKey(m => m.UserId).OnDelete(DeleteBehavior.Cascade);
+            message.HasIndex(m => new { m.UserId, m.CreatedAt });
+            message.Property(m => m.Role).HasMaxLength(20);
+            message.Property(m => m.Content).HasMaxLength(8000);
         });
 
         modelBuilder.Entity<Notification>(notification =>

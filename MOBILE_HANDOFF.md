@@ -649,6 +649,40 @@ Statuses: `Requested`, `Accepted`, `Active` are open (one open connection per pa
 **Suggested UX for the app:** after registration show "Choose your doctor and laboratory" (skippable); when a
 `CareRequestAccepted` notification arrives, show a dialog "Share your medical records with Dr. …?" → `confirm` / `end`.
 
+### AI chat — "Healthly AI" (`/api/chat/messages`)
+
+Any logged-in user. The assistant answers only about **health** (evidence-based, FDA / TİTCK / WHO, no diagnoses,
+no prescription drugs or doses; triage: clarifying questions → "call 112 / Emergency Department" or "see a
+\<specialty\> doctor") and **the Healthly platform** (uploading results, Healthly ID, care team, partner labs and
+doctors). Anything else gets one of 10 fixed polite refusals. It replies in the language of the question (EN/TR).
+It sees only an anonymized profile (sex, age, height, weight) and the latest confirmed lab results — never the name,
+e-mail, phone, date of birth, city or Healthly ID.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/chat/messages` | `{ "messages": [...], "disclaimer": "…" }` — latest 100, oldest first |
+| `POST` | `/api/chat/messages` | `{ "content": "…" }` (1–2000 chars) → both saved messages + `model`, `isMock`, `disclaimer` |
+| `DELETE` | `/api/chat/messages` | Clear my history → `204` |
+
+```json
+{
+  "userMessage": { "id": 41, "role": "user", "content": "I burned my hand", "createdAt": "2026-11-20T09:00:00Z" },
+  "assistantMessage": { "id": 42, "role": "assistant", "content": "Cool the burn under running water…", "createdAt": "2026-11-20T09:00:00.001Z" },
+  "model": "gemini:gemini-3.5-flash",
+  "isMock": false,
+  "disclaimer": "Healthly AI can make mistakes. Always verify medical information and consult a qualified doctor."
+}
+```
+
+- **Show `disclaimer` under every assistant message** (small text). For Turkish UI:
+  "Healthly AI hata yapabilir. Tıbbi bilgileri her zaman doğrulayın ve yetkin bir doktora danışın."
+- Answers can take 5–40 s (if Gemini is busy the API switches to Groq) — show a "Healthly AI is thinking…" bubble
+  and use a request timeout of at least 120 s.
+- `429` — more than 10 messages a minute or 30 an hour (`Retry-After` in seconds). `503` — all AI providers are down;
+  **nothing was saved**, keep the text in the input so the user can resend. `400` — empty or too long message.
+- `content` uses light markdown: paragraphs, `- ` / `1. ` lists, `**bold**`. Render it as text (no HTML).
+- `isMock: true` — the server has no AI keys; answers come from a rule-based demo assistant (label it "Demo mode").
+
 ### Notifications (`/api/notifications`)
 
 | Method | Path | Purpose |
