@@ -62,6 +62,45 @@ public class FileStorageService
         return null;
     }
 
+    // Полная проверка загрузки: тип и размер (ValidateUpload) + содержимое файла (сигнатура, «магические байты»).
+    // Расширение задаёт сам пользователь: «virus.exe», переименованный в «report.pdf», прошёл бы проверку по имени.
+    // Поэтому читаем начало файла и сверяем с форматом, который обещает расширение
+    public static async Task<string?> ValidateUploadAsync(IFormFile file, CancellationToken cancellationToken)
+    {
+        if (ValidateUpload(file) is { } invalid)
+        {
+            return invalid;
+        }
+
+        var header = new byte[SignatureBytes];
+        await using var stream = file.OpenReadStream();
+        var read = 0;
+        while (read < header.Length && await stream.ReadAsync(header.AsMemory(read), cancellationToken) is var count and > 0)
+        {
+            read += count;
+        }
+
+        return MatchesSignature(header.AsSpan(0, read), GetContentType(file.FileName)!)
+            ? null
+            : "The file content does not match its type. Upload a real PDF, JPG or PNG file.";
+    }
+
+    // Сколько байт с начала файла читаем: PDF допускает мусор до «%PDF-» в первых 1024 байтах (спецификация PDF)
+    private const int SignatureBytes = 1024;
+
+    private static readonly byte[] PdfSignature = "%PDF-"u8.ToArray();
+    private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    private static readonly byte[] JpegSignature = [0xFF, 0xD8, 0xFF];
+
+    // true — начало файла соответствует формату (MIME-типу из расширения)
+    public static bool MatchesSignature(ReadOnlySpan<byte> header, string contentType) => contentType switch
+    {
+        "application/pdf" => header.IndexOf(PdfSignature) >= 0,
+        "image/png" => header.StartsWith(PngSignature),
+        "image/jpeg" => header.StartsWith(JpegSignature),
+        _ => false,
+    };
+
     public Stream? OpenRead(string storedName)
     {
         var fullPath = GetFullPath(storedName);

@@ -22,6 +22,10 @@ public class User
     public bool MarketingOptIn { get; set; } // Согласие на маркетинговые сообщения
     public DateTime? ConsentsAcceptedAt { get; set; } // Когда приняты Privacy Policy/Terms/Authorization
 
+    // Защита от подбора пароля (Services/LoginLockout): неверные пароли подряд и до какого момента вход закрыт (UTC)
+    public int FailedLoginCount { get; set; }
+    public DateTime? LockoutEndsAt { get; set; }
+
     // Healthly ID пациента ("HL-7K3P9Q"): пациент называет его или показывает QR-код в лаборатории,
     // сотрудник по нему находит пациента. Есть только у пациентов (PatientCodes)
     public string? PatientCode { get; set; }

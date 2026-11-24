@@ -43,12 +43,14 @@ public class ChatController : ControllerBase
     /// </remarks>
     /// <response code="200">The saved user message and the assistant's answer.</response>
     /// <response code="400">Empty or too long message; see <c>errors</c>.</response>
+    /// <response code="404">The account no longer exists.</response>
     /// <response code="429">Too many messages; wait for the time in <c>Retry-After</c> (seconds).</response>
     /// <response code="503">All AI providers are unavailable; nothing was saved, try again later.</response>
     [HttpPost]
     [EnableRateLimiting(RateLimiting.AiChat)]
     [ProducesResponseType<ChatReplyResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<ChatReplyResponse>> SendMessage(SendChatMessageRequest request, CancellationToken cancellationToken)
@@ -61,6 +63,10 @@ public class ChatController : ControllerBase
         }
 
         var exchange = await _chat.SendAsync(User.GetUserId()!.Value, content, cancellationToken);
+        if (exchange is null)
+        {
+            return Problem(detail: "Your account was not found. Log in again.", statusCode: StatusCodes.Status404NotFound);
+        }
         return new ChatReplyResponse(
             ChatMessageResponse.From(exchange.UserMessage),
             ChatMessageResponse.From(exchange.AssistantMessage),

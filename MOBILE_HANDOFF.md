@@ -203,13 +203,13 @@ the API first started), each with **Glucose** (mmol/L), **Cholesterol** (mmol/L)
 |---|---|---|
 | `200` / `201` | OK / created | — (the resource) |
 | `204` | Deleted / logged out | — (empty body) |
-| `400` | Validation failed, or a bad file on upload | — (see `errors`) / `"File must be between 1 byte and 10 MB"` |
+| `400` | Validation failed, or a bad file on upload | — (see `errors`) / `"File must be between 1 byte and 10 MB"` / `"The file content does not match its type. Upload a real PDF, JPG or PNG file."` |
 | `401` | Access token missing, invalid or **expired** → refresh ([§4](#4-authentication-jwt--refresh-tokens)); wrong password on login; bad refresh token | `"The access token has expired. Get a new one with POST /api/auth/refresh."` / `"Invalid email or password"` |
 | `403` | Logged in, but not allowed (wrong role, or someone else's data) | `"You do not have permission to perform this action."` |
 | `404` | Not found (record or URL) | `"User not found"` |
 | `405` | Wrong HTTP method for the URL | `"This HTTP method is not supported for this endpoint."` |
 | `409` | Email already registered | `"A user with this email already exists"` |
-| `429` | Rate limit: login/register — 20 per minute per IP; `POST /api/documents/{id}/analyze` — 20 per hour per user; lab Healthly ID lookup — 30 per minute. Wait `Retry-After` seconds (header) | `"Too many requests. Please try again in 42 seconds."` |
+| `429` | Rate limit: login/register — 20 per minute per IP; `POST /api/documents/{id}/analyze` — 20 per hour per user; lab Healthly ID lookup — 30 per minute. Wait `Retry-After` seconds (header). Also on login: **the account is locked for 15 minutes after 5 wrong passwords in a row** (even the right password is refused until then) | `"Too many requests. Please try again in 42 seconds."` / `"Too many failed sign-in attempts. For your security the account is locked — try again in 15 minutes."` |
 | `500` | Server bug | `"An unexpected error occurred. Please try again later."` |
 
 Validation error (`400`) — show `errors[field][0]` under the matching input. Keys are PascalCase DTO property names
@@ -450,7 +450,7 @@ lab results depend on them (the AI analysis returns `patientDataNote` when they 
 ```
 
 **Upload** — `POST /api/users/{id}/documents`, `multipart/form-data`, one field named **`file`**.
-PDF, PNG, JPG/JPEG; max 10 MB. Response `201` = document details (status `Pending`, empty `results`).
+PDF, PNG, JPG/JPEG; max 10 MB. The server checks the file **content** (PDF/PNG/JPEG signature), not only the extension — a renamed file, or a PNG saved as `.jpg`, gets `400`. Response `201` = document details (status `Pending`, empty `results`).
 Do **not** set the `Content-Type` header by hand — the HTTP client must add the multipart boundary.
 
 **Download** — `GET /api/documents/{id}/file` returns the raw bytes with the original `Content-Type`.
@@ -680,6 +680,10 @@ e-mail, phone, date of birth, city or Healthly ID.
   and use a request timeout of at least 120 s.
 - `429` — more than 10 messages a minute or 30 an hour (`Retry-After` in seconds). `503` — all AI providers are down;
   **nothing was saved**, keep the text in the input so the user can resend. `400` — empty or too long message.
+  `404` — the account no longer exists (log the user out).
+- Personal data the user types (name, phone, TC Kimlik, date of birth, e-mail, any Healthly ID) is masked by the
+  server before the text goes to the AI; the saved history keeps the original text for the user. The AI sees only
+  the last ~11 messages (at most 12,000 characters), so very old context is "forgotten".
 - `content` uses light markdown: paragraphs, `- ` / `1. ` lists, `**bold**`. Render it as text (no HTML).
 - `isMock: true` — the server has no AI keys; answers come from a rule-based demo assistant (label it "Demo mode").
 
@@ -911,6 +915,6 @@ The web client `healthly-web/lib/api.ts` is a working reference for every call.
 | `401` from `/auth/refresh` right after a successful refresh | The old refresh token was sent again — save the new one from every refresh response; refresh only once for parallel requests |
 | Logged out on all devices unexpectedly | A refresh token was reused after rotation (treated as theft), or an admin changed the password |
 | `403` | Patient calling another user's id, or a role-restricted endpoint ([§9](#9-access-rules-in-one-table)) |
-| `400` on upload | Field must be named `file`; only PDF/PNG/JPG up to 10 MB; let the client set the multipart `Content-Type` |
+| `400` on upload | Field must be named `file`; only PDF/PNG/JPG up to 10 MB, and the extension must match the real format; let the client set the multipart `Content-Type` |
 | `400` on register | Read `errors` — usually phone format, age under 18, or a checkbox left `false` |
 | Login with `admin@healthly.com` / `Admin123!` fails | That admin existed before the demo seeder; ask the backend owner for its password ([§5](#5-test-accounts)) |

@@ -98,7 +98,8 @@ public class AuthController : ControllerBase
     /// <response code="200">Logged in.</response>
     /// <response code="400">Email or password is missing or malformed.</response>
     /// <response code="401">Invalid email or password.</response>
-    /// <response code="429">Too many attempts from this address; wait for the time in <c>Retry-After</c> (seconds).</response>
+    /// <response code="429">Too many attempts from this address, or the account is locked for 15 minutes after 5 wrong
+    /// passwords in a row; wait for the time in <c>Retry-After</c> (seconds).</response>
     [HttpPost("login")]
     [EnableRateLimiting(RateLimiting.Auth)]
     [AllowAnonymous]
@@ -111,12 +112,41 @@ public class AuthController : ControllerBase
         var email = UserMappings.NormalizeEmail(request.Email);
         var user = await _context.Users.Include(u => u.Laboratory).FirstOrDefaultAsync(u => u.Email == email);
 
-        if (user == null || !_passwords.Verify(user, request.Password))
+        if (user == null)
         {
-            return Problem(detail: "Invalid email or password", statusCode: StatusCodes.Status401Unauthorized);
+            // Тратим столько же времени, сколько на настоящую проверку, — по времени ответа не узнать, есть ли e-mail
+            _passwords.VerifyDummy(request.Password);
+            return InvalidCredentials();
         }
 
+        var now = DateTime.UtcNow;
+        // Аккаунт заблокирован после серии неверных паролей — пароль даже не проверяем (иначе подбор продолжался бы)
+        if (LoginLockout.RemainingLockout(user, now) is { } remaining)
+        {
+            return Locked(remaining);
+        }
+
+        if (!_passwords.Verify(user, request.Password))
+        {
+            var lockedNow = LoginLockout.RegisterFailure(user, now);
+            await _context.SaveChangesAsync();
+            return lockedNow ? Locked(LoginLockout.LockoutDuration) : InvalidCredentials();
+        }
+
+        if (LoginLockout.Reset(user))
+        {
+            await _context.SaveChangesAsync();
+        }
         return await CreateAuthResponseAsync(user, RefreshTokenCookie.IsRequested(Request));
+    }
+
+    private ObjectResult InvalidCredentials() =>
+        Problem(detail: "Invalid email or password", statusCode: StatusCodes.Status401Unauthorized);
+
+    private ObjectResult Locked(TimeSpan remaining)
+    {
+        Response.Headers.RetryAfter = ((int)Math.Ceiling(remaining.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return Problem(detail: LoginLockout.Message(remaining), statusCode: StatusCodes.Status429TooManyRequests);
     }
 
     /// <summary>Get a new access token with a refresh token</summary>
@@ -236,6 +266,7 @@ public class AuthController : ControllerBase
         }
 
         user.PasswordHash = _passwords.Hash(user, request.NewPassword);
+        LoginLockout.Reset(user);
         await _context.SaveChangesAsync();
 
         // Все сессии (в том числе на других устройствах) завершаются, этому устройству выдаётся новая пара токенов

@@ -137,6 +137,8 @@ if (trustForwardedHeaders)
 builder.Services.AddControllers(options => options.Filters.Add(new ProblemDetailsContentTypeFilter()));
 // Все ошибки — в формате ProblemDetails (RFC 9457) с traceId; см. Middleware/ExceptionHandlingMiddleware.cs
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ProblemDetailsDefaults.Customize);
+// HSTS на год (по умолчанию 30 дней); поддомены не включаем — они могут быть не на HTTPS
+builder.Services.AddHsts(options => options.MaxAge = TimeSpan.FromDays(365));
 builder.Services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer<ApiInfoTransformer>();
@@ -152,6 +154,8 @@ if (trustForwardedHeaders)
     app.UseForwardedHeaders();
 }
 
+// Заголовки безопасности (nosniff, запрет встраивания во фрейм, строгая CSP) — на всех ответах, включая ошибки
+app.UseMiddleware<SecurityHeadersMiddleware>();
 // Ловит исключения всех следующих middleware и контроллеров
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 // Пустые ответы 400–599 (401 от JWT, 403, 404 неизвестного адреса) получают тело ProblemDetails
@@ -178,6 +182,9 @@ app.UseCors("AllowReactApp");
 // редирект на https://localhost сломал бы им запросы
 if (!app.Environment.IsDevelopment())
 {
+    // HSTS: браузер запоминает «этот домен — только по HTTPS» на год. Заголовок уходит только в ответах по HTTPS
+    // (за Cloudflare-туннелем схему восстанавливает UseForwardedHeaders) и не ставится для localhost
+    app.UseHsts();
     app.UseHttpsRedirection();
 }
 app.UseAuthentication();
