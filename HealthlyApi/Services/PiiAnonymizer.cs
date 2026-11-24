@@ -9,6 +9,7 @@ namespace HealthlyApi.Services;
 //   e-mail                      → [REDACTED_EMAIL]
 //   идентификаторы после метки: "Patient ID: PAC001", "Hasta No: 123", "TC Kimlik No: …", "Report ID : RE1"
 //     (и их искажения OCR: "Patient 10", "Test 1d"); 11-значный номер TC Kimlik без метки → [REDACTED_ID]
+//   Healthly ID любого пациента: "HL-7K3P9Q", "hl 7k3p9q", "HL7K3P9Q"       → [REDACTED_ID]
 //   телефоны +90 / 0 5xx (Турция), +7 / 8 (Россия), любой международный "+код страны"   → [REDACTED_PHONE]
 //   даты 18.04.1992, 18/04/92, 1992-04-18           → [REDACTED_DATE]
 //   имена                       → [REDACTED_NAME]:
@@ -42,6 +43,7 @@ public static partial class PiiAnonymizer
         result = PhoneRegex().Replace(result, PhoneMask);
         result = InternationalPhoneRegex().Replace(result, PhoneMask);
         result = TurkishNationalIdRegex().Replace(result, IdMask);
+        result = HealthlyIdRegex().Replace(result, IdMask);
         result = DateRegex().Replace(result, DateMask);
         result = IsoDateRegex().Replace(result, DateMask);
 
@@ -165,6 +167,10 @@ public static partial class PiiAnonymizer
     // TC Kimlik No — 11 цифр, первая не 0; в анализах таких «голых» 11-значных чисел не бывает
     [GeneratedRegex(@"(?<![\d.,])[1-9]\d{10}(?![\d.,])", RegexOptions.None, TimeoutMs)]
     private static partial Regex TurkishNationalIdRegex();
+
+    // Healthly ID (Services/PatientCodes): "HL" + 6 букв/цифр, дефис или пробел необязательны, регистр любой
+    [GeneratedRegex(@"(?<![\p{L}\p{N}])HL[ \t\-]?[0-9A-Z]{6}(?![\p{L}\p{N}])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeoutMs)]
+    private static partial Regex HealthlyIdRegex();
 
     [GeneratedRegex(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", RegexOptions.None, TimeoutMs)]
     private static partial Regex EmailRegex();

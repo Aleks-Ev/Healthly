@@ -259,6 +259,8 @@ public class UsersController : ControllerBase
         if (request.Password != null)
         {
             user.PasswordHash = _passwords.Hash(user, request.Password);
+            // Администратор задал новый пароль — заодно снимается блокировка за неверные пароли
+            LoginLockout.Reset(user);
         }
 
         await _context.SaveChangesAsync();

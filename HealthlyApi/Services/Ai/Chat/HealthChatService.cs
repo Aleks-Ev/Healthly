@@ -9,7 +9,8 @@ namespace HealthlyApi.Services.Ai.Chat;
 //   1. из базы — профиль пациента, его подтверждённые показатели (TestResults, новые первыми), каталог лабораторий и врачей;
 //   2. HealthChatContextBuilder оставляет только разрешённые поля (пол, возраст, рост, вес; без ФИО, e-mail, телефона,
 //      даты рождения, города и Healthly ID);
-//   3. HealthChatPrompt строит системный промпт и обезличивает последние реплики (окно HistoryWindow);
+//   3. HealthChatPrompt строит системный промпт и обезличивает последние реплики (окно HistoryWindow и MaxHistoryCharacters)
+//      и новое сообщение — по ФИО, e-mail, Healthly ID, телефону и дате рождения пациента + шаблонам PiiAnonymizer;
 //   4. IChatCompletionClient: Gemini → Groq (FallbackChatClient) или заглушка MockChatClient без ключей;
 //   5. сообщение пользователя и ответ сохраняются вместе — только если ответ получен (при 503 история не меняется).
 // В базе хранится исходный текст пользователя (это его собственная переписка); обезличенная версия — только для модели.
@@ -36,9 +37,14 @@ public class HealthChatService
             .OrderBy(m => m.CreatedAt).ThenBy(m => m.Id)
             .ToListAsync(cancellationToken);
 
-    public async Task<ChatExchange> SendAsync(int userId, string content, CancellationToken cancellationToken)
+    // null — пользователя уже нет в базе (аккаунт удалён, а access-токен ещё жив): контроллер отвечает 404, а не 500
+    public async Task<ChatExchange?> SendAsync(int userId, string content, CancellationToken cancellationToken)
     {
-        var user = await _context.Users.AsNoTracking().FirstAsync(u => u.Id == userId, cancellationToken);
+        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+        if (user is null)
+        {
+            return null;
+        }
 
         var results = await _context.TestResults
             .AsNoTracking()
@@ -59,7 +65,8 @@ public class HealthChatService
             .ToListAsync(cancellationToken);
 
         var chatContext = HealthChatContextBuilder.Build(user, results, laboratories, doctors);
-        var identity = new HealthChatPrompt.PatientIdentity(user.FullName, user.Email, user.PatientCode);
+        // Только для маскирования: по этим данным PiiAnonymizer вычищает их из переписки, сами они в модель не уходят
+        var identity = new HealthChatPrompt.PatientIdentity(user.FullName, user.Email, user.PatientCode, user.PhoneNumber, user.DateOfBirth);
         var request = HealthChatPrompt.Build(chatContext, history, content, identity);
 
         var completion = await _client.CompleteAsync(request, cancellationToken);

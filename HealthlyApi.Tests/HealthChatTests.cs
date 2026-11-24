@@ -135,7 +135,9 @@ public class HealthChatPrivacyTests
 
         var request = HealthChatPrompt.Build(Context(), history, "newest", Identity());
 
-        Assert.Equal(HealthChatPrompt.HistoryWindow, request.Messages.Count);
+        // Последние 11 реплик истории начинаются с ответа ассистента — он отбрасывается, окно начинается с вопроса пользователя
+        Assert.Equal(HealthChatPrompt.HistoryWindow - 1, request.Messages.Count);
+        Assert.Equal(ChatRoles.User, request.Messages[0].Role);
         Assert.Equal("newest", request.Messages[^1].Content);
         Assert.Equal(ChatRoles.User, request.Messages[^1].Role);
         Assert.DoesNotContain(request.Messages, m => m.Content == "message 1");
@@ -269,9 +271,17 @@ public class ChatRateLimitTests
             Assert.False(second.IsAcquired);
         }
 
-        await Task.Delay(400);
-        using var third = await limiter.AcquireAsync();
-        Assert.True(third.IsAcquired);
+        // Окно освобождает таймер ограничителя; под нагрузкой (параллельные тесты с PBKDF2) он срабатывает позже 150 мс,
+        // поэтому ждём освобождения до 5 с, а не фиксированные 400 мс — иначе тест «мигал»
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        var acquired = false;
+        while (!acquired && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(100);
+            using var third = await limiter.AcquireAsync();
+            acquired = third.IsAcquired;
+        }
+        Assert.True(acquired);
     }
 }
 

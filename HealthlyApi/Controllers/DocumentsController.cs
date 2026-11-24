@@ -92,7 +92,7 @@ public class DocumentsController : ControllerBase
             return Problem(detail: "User not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        if (FileStorageService.ValidateUpload(file) is { } invalid)
+        if (await FileStorageService.ValidateUploadAsync(file, cancellationToken) is { } invalid)
         {
             return Problem(detail: invalid, statusCode: StatusCodes.Status400BadRequest);
         }

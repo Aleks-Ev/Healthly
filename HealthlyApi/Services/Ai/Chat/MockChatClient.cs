@@ -7,7 +7,8 @@ namespace HealthlyApi.Services.Ai.Chat;
 
 // Заглушка чата без внешнего ИИ — когда в конфигурации нет ни одного ключа (Ai:Gemini:ApiKey / Ai:Groq:ApiKey).
 // Нужна, чтобы проект работал у всех: отвечает по тем же правилам, что и промпт, но по простым ключевым словам (EN/TR):
-//   красные флаги → «звоните 112 / Acil Servis»; симптом → уточняющие вопросы и профильный врач;
+//   красные флаги → «звоните 112 / Acil Servis»; «сыграй врача / поставь диагноз» → отказ от роли и триаж;
+//   лекарства и дозы → «решает врач или фармацевт»; симптом (и «народное средство») → уточняющие вопросы и профильный врач;
 //   питание → оценка калорий по Mifflin–St Jeor из обезличенного профиля; результаты → сводка отклонений;
 //   платформа → как загрузить, Healthly ID, команда здоровья, лаборатории и врачи из каталога; иначе — один из 10 отказов.
 // Ответы помечаются IsMock = true, сайт показывает бейдж «Demo mode».
@@ -33,7 +34,22 @@ public class MockChatClient : IChatCompletionClient
             return "emergency";
         }
 
-        if (ContainsAny(text, "burn", "pain", "hurts", "ache", "fever", "cough", "rash", "nausea", "vomit", "diarrh", "dizzy", "headache",
+        // «Притворись моим врачом», «поставь диагноз» — роль врача не берём (раньше симптомов: «diagnose my headache»)
+        if (ContainsAny(text, "pretend", "act as", "role play", "roleplay", "be my doctor", "you are my doctor", "you are a doctor",
+                "diagnos", "teşhis", "tanı koy", "doktorum ol", "doktor gibi"))
+        {
+            return "roleplay";
+        }
+
+        // Лекарства и дозы — никаких названий и дозировок, только «к врачу или фармацевту»
+        if (ContainsAny(text, "dose", "dosage", "how many mg", "mg of", "antibiotic", "prescri", "painkiller", "ibuprofen", "paracetamol",
+                "amoxicillin", "insulin", "pill ", "pills", "medicine", "medication", "doz", "antibiyotik", "ilaç", "reçete", "ağrı kesici"))
+        {
+            return "medication";
+        }
+
+        if (ContainsAny(text, "folk", "home remed", "natural remed", "herbal", "remedy", "kocakarı", "bitkisel", "doğal tedavi",
+                "burn", "pain", "hurts", "ache", "fever", "cough", "rash", "nausea", "vomit", "diarrh", "dizzy", "headache",
                 "injur", "bleed", "swelling", "yanık", "ağrı", "ateş", "öksürük", "kaşıntı", "bulantı", "kusma", "baş dönmesi", "şişlik"))
         {
             return "symptom";
@@ -64,7 +80,7 @@ public class MockChatClient : IChatCompletionClient
             return "directory";
         }
 
-        if (ContainsAny(text, "code", "python", "javascript", "program", "sql", "bug", "html", "react", "c#")) return "programming";
+        if (ContainsAny(text, "code", "python", "javascript", "program", "sql", "bug ", "bugs", "html", "react", "c#")) return "programming";
         if (ContainsAny(text, "recipe", "cake", "cook", "bake", "pasta", "tarif", "yemek")) return "cooking";
         if (ContainsAny(text, "homework", "math", "equation", "solve", "exam", "ödev", "matematik")) return "study";
         if (ContainsAny(text, "essay", "poem", "story", "write a", "letter", "şiir", "hikaye")) return "writing";
@@ -87,6 +103,17 @@ public class MockChatClient : IChatCompletionClient
                 "This may be an emergency. Please call 112 (Türkiye) or go to the nearest Emergency Department (Acil Servis) right now. " +
                 "Don't drive yourself if you feel faint or have chest pain or trouble breathing — ask someone to take you or wait for the ambulance. " +
                 "Don't eat, drink or take any medicine unless the emergency operator tells you to.",
+            "roleplay" =>
+                "I'm an AI assistant, not a doctor, so I can't take on that role or give you a diagnosis — only a doctor who examines you can. " +
+                "What I can do is help you understand how urgent this is and which specialist to see. Tell me:\n" +
+                "1. What exactly bothers you, and where?\n2. Since when, and how strong is it (0–10)?\n" +
+                "3. Any other symptoms, chronic conditions or pregnancy?\n" +
+                "If you have chest pain, trouble breathing, signs of a stroke or heavy bleeding — call 112 now.",
+            "medication" =>
+                "I can't recommend specific medicines or doses — only a doctor or pharmacist who knows your history can decide that safely. " +
+                "Antibiotics in particular should be taken only on a doctor's prescription: many infections don't need them, and self-treatment causes resistance and side effects. " +
+                "If you already have a prescription, follow it and the package leaflet, and ask your pharmacist if anything is unclear. " +
+                "Tell me about your symptoms and I'll help you find the right specialist; for severe or sudden symptoms call 112.",
             "symptom" => SymptomReply(message),
             "nutrition" => NutritionReply(context),
             "results" => ResultsReply(context),
@@ -106,7 +133,13 @@ public class MockChatClient : IChatCompletionClient
     private static string SymptomReply(string message)
     {
         var text = message.ToLower(CultureInfo.InvariantCulture);
-        var builder = new StringBuilder("I'm sorry you're dealing with this. To point you to the right care, could you tell me:\n");
+        var builder = new StringBuilder();
+        if (ContainsAny(text, "folk", "home remed", "natural remed", "herbal", "remedy", "kocakarı", "bitkisel", "doğal tedavi"))
+        {
+            // Народные средства не советуем (правило 2 промпта) — только проверенная первая помощь
+            builder.Append("I can't recommend folk, herbal or home remedies — they aren't proven to work and some make things worse. ");
+        }
+        builder.Append("I'm sorry you're dealing with this. To point you to the right care, could you tell me:\n");
         builder.Append("1. Where exactly is it and how strong is it (0–10)?\n");
         builder.Append("2. When did it start, and is it getting better or worse?\n");
         builder.Append("3. Any other symptoms — fever, vomiting, dizziness, bleeding? Are you pregnant or do you have a chronic condition?\n\n");

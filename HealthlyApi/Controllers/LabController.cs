@@ -98,7 +98,7 @@ public class LabController : ControllerBase
             return PatientNotFound();
         }
 
-        if (FileStorageService.ValidateUpload(file) is { } invalid)
+        if (await FileStorageService.ValidateUploadAsync(file, cancellationToken) is { } invalid)
         {
             return Problem(detail: invalid, statusCode: StatusCodes.Status400BadRequest);
         }
